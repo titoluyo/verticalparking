@@ -1,11 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/work/verticalparking/cabinasensor/**)",
-      "Read(//c/work/verticalparking/**)",
-      "WebSearch",
-      "WebFetch(domain:www.espboards.dev)",
-      "WebFetch(domain:docs.cirkitdesigner.com)"
+      "Bash(powershell:*)",
+      "Bash(dir \"C:\\Users\\tito.luyo\\.platformio\\penv\\Scripts\")",
+      "Bash(findstr:*)",
+      "Bash(pio:*)"
     ],
     "deny": [],
     "ask": []
