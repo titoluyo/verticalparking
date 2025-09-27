@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/work/verticalparking/cabinasensor/**)",
+      "Read(//c/work/verticalparking/**)",
+      "WebSearch",
+      "WebFetch(domain:www.espboards.dev)",
+      "WebFetch(domain:docs.cirkitdesigner.com)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
