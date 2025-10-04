@@ -3,7 +3,8 @@
 
 Adafruit_VL53L0X lox = Adafruit_VL53L0X();
 
-float correctionFactor = 0.99; // Factor de corrección para ajustar la medición
+float slope = 0.9071;  // Pendiente de la ecuación lineal
+float intercept = 40;  // Intersección de la ecuación lineal
 
 void setup() {
   Serial.begin(9600);
@@ -18,11 +19,11 @@ void loop() {
   lox.rangingTest(&measure, false);
   
   if (measure.RangeStatus != 4) { 
-    // Aplicar el factor de corrección a la medición
-    float correctedDistance = measure.RangeMilliMeter * correctionFactor;
+    // Aplicar la corrección usando la ecuación: distancia real = (medido - intercept) / slope
+    float realDistance = (measure.RangeMilliMeter - intercept) / slope;
     
     Serial.print("Distancia corregida (mm): "); 
-    Serial.println(correctedDistance);
+    Serial.println(realDistance);
   } else {
     Serial.println("Fuera de rango");
   }
