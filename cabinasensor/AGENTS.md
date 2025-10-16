@@ -1,30 +1,33 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `cabina/` holds Arduino sketches for the cabin sensor; `cabina.ino` targets ESP32-S3 with FastLED, while `cabina_c6.ino` adapts for ESP32-C6.
-- `arduino/SENSOR_DISTANCIA_VL53L0X/` contains the VL53L0X distance demo.
-- `esp32c6-blink/` and `esp32s3-blink/` are PlatformIO projects with standard `src/`, `include/`, `lib/`, and `test/` folders. Keep peripheral-specific assets beside their project.
+- `cabina/` hosts the main cabin sensor Arduino sketches; `cabina.ino` targets ESP32-S3 with FastLED while `cabina_c6.ino` adapts pin maps for ESP32-C6.
+- `arduino/SENSOR_DISTANCIA_VL53L0X/` demos the VL53L0X range finder and stays isolated for bench experiments.
+- `esp32s3-blink/` and `esp32c6-blink/` are PlatformIO environments with `src/`, `include/`, `lib/`, and `test/`; keep board-specific wiring notes beside each project.
+- Use `.pio/` build artifacts only for troubleshooting; regenerate by rerunning PlatformIO commands instead of editing outputs manually.
 
 ## Build, Test, and Development Commands
-- From a PlatformIO folder run `pio run -e esp32c6-supermini` or `pio run -e esp32s3-supermini` to compile, and append `-t upload` to flash the target module.
-- Use `pio device monitor -e esp32c6-supermini` (or s3 variant) for serial logs; default speeds are 115200 baud.
-- Arduino sketches compile via the IDE, or with `arduino-cli compile --fqbn esp32:esp32:esp32s3 cabina/cabina.ino` (adjust the `--fqbn` to match your board before uploading).
+- `pio run -e esp32s3-supermini` (or `esp32c6-supermini`) compiles the selected PlatformIO target; append `-t upload` to flash the board.
+- `pio device monitor -e esp32s3-supermini` attaches the serial console at 115200 baud; press Ctrl+] to exit.
+- `arduino-cli compile --fqbn esp32:esp32:esp32s3 cabina/cabina.ino` builds the S3 sketch; swap the FQBN for C6 variants before uploading.
+- Run `pio run -t clean` whenever library flags or board configs change to avoid stale objects.
 
 ## Coding Style & Naming Conventions
-- Follow K&R braces with two-space indentation inside Arduino files; C++ sources under PlatformIO may use four spaces where needed.
-- Prefer descriptive uppercase macros for pins and constants (`DATA_PIN`, `LED_PIN`) and camelCase for variables/functions.
-- Keep logging via `Serial.print` or `ESP_LOGI` concise and bilingual when needed; favor English for new additions.
+- Arduino sketches follow K&R braces with two-space indents; C++ in PlatformIO may use four spaces where clarity improves nesting.
+- Declare hardware constants as uppercase macros (`LED_PIN`, `DATA_PIN`) and keep functions/variables camelCase.
+- Prefer concise `Serial.print` logs; add bilingual notes only when clarifying field procedures.
 
 ## Testing Guidelines
-- PlatformIO environments ship with Unity-based test hooks. Place unit tests in `test/` and name files `<feature>_test.cpp`.
-- Run `pio test -e esp32c6-supermini` to execute tests; add board fakes or mocks when hardware access is required.
-- Document manual validation steps (e.g., LED patterns, sensor ranges) in the PR if automated coverage is not feasible.
+- Place Unity tests in `test/` using the `<feature>_test.cpp` pattern and include `ArduinoFake` helpers when mocking IO.
+- Execute `pio test -e esp32s3-supermini` to run the suite; rerun on both environments when shared modules change.
+- Capture manual checks—LED blink timings, sensor ranges, wiring photos—in the PR description when automation is not feasible.
 
 ## Commit & Pull Request Guidelines
-- Match the existing history: short, action-focused messages in the imperative (`arduino carpeta renombrado` style). Reference issues when available.
-- Each PR should describe hardware targets, include build/test output snippets, and attach photos or serial traces for firmware features.
-- Request review once the branch is rebased and PlatformIO builds pass. Note dependencies on external libraries or hardware setup changes.
+- Use short, imperative commit titles (e.g., `ajusta leds supermini`); group related file changes within one commit.
+- PRs must list target hardware, relevant build/test output, and any wiring or library dependencies; attach serial traces or photos for firmware-visible behavior.
+- Rebase before requesting review to keep the history linear and highlight only the intended diff.
 
-## Firmware Notes
-- Set monitor speeds to 115200 baud for ESP32 targets. For VL53L0X, confirm `Serial.begin(9600)` matches your host if you modify it.
-- Keep board-specific pin assignments documented in-code comments and update platform specs when migrating between C6 and S3 modules.
+## Firmware & Configuration Tips
+- Default serial monitors to 115200 baud; adjust sketches if your host requires another speed.
+- Record pin assignments in-code comments when swapping between Supermini revisions; update `platformio.ini` if upload speed or board ID changes.
+- Store sensitive Wi-Fi credentials in local `platformio.ini` extra configs, never in tracked sources.
