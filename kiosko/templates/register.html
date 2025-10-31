@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Registrar Ingreso - Kiosko POS{% endblock %}
+{% block content %}
+<section>
+  <h2>Registrar Ingreso</h2>
+  {% if error %}
+    <div class="alert">{{ error }}</div>
+  {% endif %}
+  <form method="post" class="form">
+    <label>
+      Nombre
+      <input type="text" name="nombre" required autofocus />
+    </label>
+    <label>
+      Placa
+      <input type="text" name="placa" required />
+    </label>
+    <div class="actions">
+      <button class="btn btn-primary" type="submit">Guardar</button>
+      <a class="btn" href="{{ url_for('routes.index') }}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
