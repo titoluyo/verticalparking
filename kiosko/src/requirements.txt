@@ -1,0 +1,24 @@
+# --- Librerías principales del proyecto ---
+flask
+fastapi
+uvicorn[standard]
+
+# --- Manejo de datos y utilidades ---
+requests
+pillow
+opencv-python
+sqlite-utils
+
+# --- Interfaz gráfica (opcional para versiones nativas sin navegador) ---
+pyqt5
+kivy
+
+# --- Control de hardware y periféricos ---
+# (GPIO y ESC/POS sólo se usan en Raspberry Pi)
+gpiozero
+python-escpos
+pyserial
+
+# --- Herramientas adicionales de desarrollo ---
+python-dotenv
+jinja2

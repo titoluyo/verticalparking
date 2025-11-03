@@ -1,0 +1,114 @@
+# ===============================
+# 🐍 Python / Flask / FastAPI
+# ===============================
+
+# Entornos virtuales
+venv/
+env/
+.venv/
+ENV/
+
+# Archivos compilados y cachés
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
+
+# Archivos temporales y logs
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Carpetas de configuración o temporales
+.cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# ===============================
+# ⚙️ Herramientas de desarrollo
+# ===============================
+
+# VSCode
+.vscode/
+.code-workspace
+
+# PyCharm / JetBrains
+.idea/
+
+# ===============================
+# 🧩 Dependencias externas
+# ===============================
+
+# Archivos generados por pip
+*.egg-info/
+*.egg
+dist/
+build/
+wheels/
+
+# ===============================
+# 🧠 Datos y configuración local
+# ===============================
+
+# Archivos de entorno
+.env
+.env.*
+
+# Bases de datos locales (no las subas a git)
+*.db
+*.sqlite3
+
+# Archivos de usuario o pruebas
+test_*.py
+tests/__pycache__/
+notebooks/
+tmp/
+uploads/
+__temp__/
+data/
+logs/
+
+# ===============================
+# 🪟 Windows específicos
+# ===============================
+Thumbs.db
+desktop.ini
+
+# ===============================
+# 🧾 Raspberry Pi específicos
+# ===============================
+
+# Archivos temporales del sistema
+*.log
+*.pid
+*.sock
+
+# Configuración del sistema (no necesaria en git)
+boot/
+sys/
+proc/
+dev/
+run/
+
+# ===============================
+# 🧱 Node / Web (si usas React o Vue en el frontend)
+# ===============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dist/
+build/
+*.map
+
+# ===============================
+# 📦 Otros
+# ===============================
+.DS_Store

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - Kiosko POS</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body class="login-body">
+  <main class="container narrow">
+    <h1>Ingresar</h1>
+    {% if error %}
+      <div class="alert">{{ error }}</div>
+    {% endif %}
+    <form method="post" class="form">
+      <label>
+        Usuario
+        <input type="text" name="username" required autofocus />
+      </label>
+      <label>
+        Contraseña
+        <input type="password" name="password" required />
+      </label>
+      <div class="actions">
+        <button class="btn btn-primary" type="submit">Entrar</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>
+
