@@ -3,17 +3,12 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}Kiosko POS{% endblock %}</title>
+  <title>{% block title %}Vertical Parking Kiosko{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
 </head>
 <body>
   <header class="header">
-    <h1>Kiosko POS</h1>
-    <nav>
-      <a href="{{ url_for('routes.index') }}" class="btn">Inicio</a>
-      <a href="{{ url_for('routes.register') }}" class="btn">Registrar</a>
-      <a href="{{ url_for('routes.logout') }}" class="btn btn-secondary">Salir</a>
-    </nav>
+    <h1>Vertical Parking Kiosko</h1>
   </header>
   <main class="container">
     {% block content %}{% endblock %}
@@ -21,4 +16,3 @@
   <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
-

@@ -1,6 +1,6 @@
 """
 SQLite database helpers.
-Stores usuarios and registros tables in kiosko.db at repo root.
+Stores registros table in kiosko.db at the repo root.
 """
 import sqlite3
 from pathlib import Path
@@ -29,17 +29,6 @@ def init_db() -> None:
     db = sqlite3.connect(DB_PATH)
     try:
         cur = db.cursor()
-        # Usuarios table for simple auth
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL
-            )
-            """
-        )
-        # Registros table (basic parking records)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS registros (
@@ -68,4 +57,3 @@ def execute(sql: str, params: Tuple = ()) -> int:
     last_id = cur.lastrowid
     cur.close()
     return last_id
-

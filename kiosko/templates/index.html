@@ -1,34 +1,12 @@
 {% extends 'base.html' %}
-{% block title %}Registros - Kiosko POS{% endblock %}
+{% block title %}Acciones principales - Kiosko{% endblock %}
 {% block content %}
-<section>
-  <h2>Registros recientes</h2>
-  <div class="table-wrapper">
-    <table class="table" id="tabla-registros">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Nombre</th>
-          <th>Placa</th>
-          <th>Fecha</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for r in registros %}
-        <tr>
-          <td>{{ r.id }}</td>
-          <td>{{ r.nombre }}</td>
-          <td>{{ r.placa }}</td>
-          <td>{{ r.creado_en }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+<section class="kiosk-actions">
+  <h2>Elige una acción</h2>
+  <p>Selecciona la opción que necesitas para continuar.</p>
+  <div class="kiosk-actions__buttons">
+    <a class="btn btn-primary btn-large" href="{{ url_for('routes.guardar_vehiculo') }}">Guardar vehículo</a>
+    <a class="btn btn-secondary btn-large" href="{{ url_for('routes.recoger_vehiculo') }}">Recoger vehículo</a>
   </div>
-  <div class="actions">
-    <a class="btn btn-primary" href="{{ url_for('routes.register') }}">Nuevo registro</a>
-  </div>
-  <p class="muted">Esta tabla se actualiza automáticamente cada 10 segundos.</p>
 </section>
 {% endblock %}
-
