@@ -1,88 +1,99 @@
-import os
-import time
-import wifi
-import socketpool
+import os, time, json
+import wifi, socketpool
 from adafruit_minimqtt import adafruit_minimqtt as MQTT
 
-# --- Wi-Fi from settings.toml ---
+# ---- Wi-Fi ----
 SSID = os.getenv("CIRCUITPY_WIFI_SSID")
 PWD  = os.getenv("CIRCUITPY_WIFI_PASSWORD")
 if not SSID or not PWD:
     raise RuntimeError("Missing Wi-Fi creds in settings.toml")
-
 print("Connecting Wi-Fi...")
 wifi.radio.connect(SSID, PWD)
 print("Wi-Fi OK, IP:", wifi.radio.ipv4_address)
 
-# --- MQTT broker settings ---
+# ---- Broker ----
 BROKER   = os.getenv("MQTT_BROKER") or "10.30.136.215"
 PORT     = int(os.getenv("MQTT_PORT") or "1883")
 USER     = os.getenv("MQTT_USER") or None
 PASSWORD = os.getenv("MQTT_PASSWORD") or None
 
-PUB_TOPIC  = "lab/esp32c6/out"
-SUB_TOPIC  = "lab/esp32c6/in"
-STATUS_T   = "lab/esp32c6/status"   # LWT topic
+# ---- Identity & topics ----
+def mac_suffix():
+    m = wifi.radio.mac_address
+    return f"{m[-3]:02X}{m[-2]:02X}{m[-1]:02X}"
 
+SITE_ID   = os.getenv("SITE_ID")   or "default-site"
+DEVICE_ID = os.getenv("DEVICE_ID") or f"esp32c6-{mac_suffix()}"
+ROOT      = os.getenv("TOPIC_BASE") or "parking"
+
+# topic scheme:
+#   {ROOT}/{SITE_ID}/{DEVICE_ID}/telemetry
+#   {ROOT}/{SITE_ID}/{DEVICE_ID}/cmd
+#   {ROOT}/{SITE_ID}/{DEVICE_ID}/status
+TOP_DEV = f"{ROOT}/{SITE_ID}/{DEVICE_ID}"
+TOP_TELE = f"{TOP_DEV}/telemetry"
+TOP_CMD  = f"{TOP_DEV}/cmd"
+TOP_STAT = f"{TOP_DEV}/status"
+
+PUB_INTERVAL = int(os.getenv("PUB_INTERVAL_SEC") or "5")
+
+# ---- MQTT client ----
 pool = socketpool.SocketPool(wifi.radio)
 
-# Some MiniMQTT builds want set_socket() instead of socket_pool arg.
-# The following works for both: try new style first, else fall back.
 def make_client():
     try:
-        # Newer API: pass socket_pool to constructor
         return MQTT.MQTT(
-            broker=BROKER,
-            port=PORT,
-            username=USER,
-            password=PASSWORD,
-            socket_pool=pool,
-            is_ssl=False,
-            keep_alive=30,
+            broker=BROKER, port=PORT, username=USER, password=PASSWORD,
+            socket_pool=pool, is_ssl=False, keep_alive=30
         )
     except TypeError:
-        # Older API: set socket globally, then construct without socket_pool
         MQTT.set_socket(pool, None)
         return MQTT.MQTT(
-            broker=BROKER,
-            port=PORT,
-            username=USER,
-            password=PASSWORD,
-            is_ssl=False,
-            keep_alive=30,
+            broker=BROKER, port=PORT, username=USER, password=PASSWORD,
+            is_ssl=False, keep_alive=30
         )
 
 mqtt = make_client()
 
-# --- Callbacks ---
-def handle_connect(client, userdata, flags, rc):
-    print("MQTT connected, rc:", rc)
-    client.subscribe(SUB_TOPIC, qos=0)
-    client.publish(STATUS_T, "online", retain=True)
+def on_connect(client, userdata, flags, rc):
+    print("MQTT connected:", rc)
+    client.subscribe(TOP_CMD, qos=0)
+    # Birth message (retained)
+    birth = {
+        "site": SITE_ID,
+        "device": DEVICE_ID,
+        "ip": str(wifi.radio.ipv4_address),
+        "status": "online",
+        "ts": time.time(),
+    }
+    client.publish(TOP_STAT, json.dumps(birth), retain=True)
 
-def handle_disconnect(client, userdata, rc):
-    print("MQTT disconnected, rc:", rc)
-
-def handle_message(client, topic, msg):
+def on_message(client, topic, msg):
     print(f"[RX] {topic}: {msg}")
-    if topic == SUB_TOPIC:
-        client.publish(PUB_TOPIC, f"echo: {msg}")
+    # minimal command handler demo
+    try:
+        if topic == TOP_CMD and msg == "ping":
+            client.publish(TOP_TELE, json.dumps({"device": DEVICE_ID, "pong": True, "ts": time.time()}))
+    except Exception as e:
+        print("cmd error:", e)
 
-def handle_subscribe(client, userdata, topic, granted_qos):
-    print(f"Subscribed to {topic} with QoS {granted_qos}")
+def on_disconnect(client, userdata, rc):
+    print("MQTT disconnected:", rc)
 
-mqtt.on_connect = handle_connect
-mqtt.on_disconnect = handle_disconnect
-mqtt.on_message = handle_message
-mqtt.on_subscribe = handle_subscribe
+def on_subscribe(client, userdata, topic, qos):
+    print("Subscribed:", topic, qos)
 
-# Set Last Will (constructor doesn’t accept will_* in your version)
-mqtt.will_set(STATUS_T, "offline", qos=0, retain=True)
+mqtt.on_connect = on_connect
+mqtt.on_message = on_message
+mqtt.on_disconnect = on_disconnect
+mqtt.on_subscribe = on_subscribe
+# Will (retained): broker publishes if we drop unexpectedly
+mqtt.will_set(TOP_STAT, json.dumps({"site": SITE_ID, "device": DEVICE_ID, "status": "offline"}), retain=True)
 
 def connect_mqtt():
     while True:
         try:
-            print(f"Connecting MQTT {BROKER}:{PORT} ...")
+            print(f"Connecting MQTT {BROKER}:{PORT} as {DEVICE_ID} ...")
             mqtt.connect()
             return
         except Exception as e:
@@ -93,28 +104,24 @@ connect_mqtt()
 
 last_pub = 0
 count = 0
-
 while True:
     try:
         mqtt.loop(timeout=1)
         now = time.monotonic()
-        if now - last_pub >= 5:
+        if now - last_pub >= PUB_INTERVAL:
             count += 1
-            payload = f"hello #{count} from ESP32-C6 @ {wifi.radio.ipv4_address}"
-            print("[TX]", PUB_TOPIC, payload)
-            mqtt.publish(PUB_TOPIC, payload, retain=False, qos=0)
+            payload = {
+                "site": SITE_ID,
+                "device": DEVICE_ID,
+                "seq": count,
+                "ip": str(wifi.radio.ipv4_address),
+                "ts": time.time(),
+                # add real sensor fields here, e.g. "encoder": value, "door": "open"
+            }
+            mqtt.publish(TOP_TELE, json.dumps(payload), retain=False, qos=0)
+            print("[TX]", TOP_TELE, payload)
             last_pub = now
     except (OSError, RuntimeError) as e:
         print("Loop error:", repr(e))
-        # Reconnect Wi-Fi if needed
-        try:
-            if not wifi.radio.ipv4_address:
-                print("Reconnecting Wi-Fi...")
-                wifi.radio.connect(SSID, PWD)
-                print("Wi-Fi reconnected:", wifi.radio.ipv4_address)
-        except Exception as we:
-            print("Wi-Fi reconnection failed:", repr(we))
-            time.sleep(3)
-            continue
-        # Reconnect MQTT
+        # optional: re-connect Wi-Fi here if needed, then:
         connect_mqtt()

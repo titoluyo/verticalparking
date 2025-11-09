@@ -17,3 +17,8 @@ DEVICE_ID="cabin-A01"       # unique per module; if empty, code auto-derives fro
 # Topic layout (change only if you want a different naming scheme)
 TOPIC_BASE="parking"        # root namespace
 PUB_INTERVAL_SEC="5"        # heartbeat/telemetry period
+
+# Optional: set to "0" to not enable input pull-ups on the IR pins
+IR_PULLUPS="1"
+
+# PRESENCE_RETAIN="1"

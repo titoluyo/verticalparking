@@ -12,8 +12,8 @@ ir_sensor_pin2.direction = digitalio.Direction.INPUT
 
 time.sleep(0.1)
 
-i2c = busio.I2C(scl=board.IO15, sda=board.IO14)
-#i2c = busio.I2C(scl=board.IO9, sda=board.IO8) 
+#i2c = busio.I2C(scl=board.IO15, sda=board.IO14) # esp32c6
+i2c = busio.I2C(scl=board.IO9, sda=board.IO8)    # esp32s3
 vl53 = adafruit_vl53l0x.VL53L0X(i2c)
 
 while True:
