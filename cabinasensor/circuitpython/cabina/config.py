@@ -15,9 +15,9 @@ PORT     = int(os.getenv("MQTT_PORT") or "1883")
 USER     = os.getenv("MQTT_USER") or None
 PASSWORD = os.getenv("MQTT_PASSWORD") or None
 
+ROOT      = os.getenv("TOPIC_BASE") or "parking"
 SITE_ID   = os.getenv("SITE_ID")   or "default-site"
 DEVICE_ID = os.getenv("DEVICE_ID") or f"esp32c6-{_mac_suffix()}"
-ROOT      = os.getenv("TOPIC_BASE") or "parking"
 
 PUB_INTERVAL = max(1, int(os.getenv("PUB_INTERVAL_SEC") or "10"))
 SAMPLE_PERIOD = float(os.getenv("SAMPLE_PERIOD_SEC") or "0.05")   # sensor poll rate
