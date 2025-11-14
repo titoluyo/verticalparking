@@ -1,0 +1,19 @@
+CIRCUITPY_WIFI_SSID = "VerticalParking"
+CIRCUITPY_WIFI_PASSWORD = "1nt3gr4$utp"
+CIRCUITPY_WEB_API_PASSWORD = "passw0rd"
+CIRCUITPY_WEB_API_PORT = 80
+
+# MQTT settings
+#MQTT_BROKER="10.30.136.215"
+MQTT_BROKER="10.14.77.223" 
+MQTT_PORT="1883"
+MQTT_USER=""          # leave empty if allow_anonymous true
+MQTT_PASSWORD=""      # leave empty if allow_anonymous true
+
+# Identity (edit these per cabin/module)
+SITE_ID="garage-01"         # e.g., site/garage/building
+DEVICE_ID="cabin-A01"       # unique per module; if empty, code auto-derives from MAC
+
+# Topic layout (change only if you want a different naming scheme)
+TOPIC_BASE="parking"        # root namespace
+PUB_INTERVAL_SEC="5"        # heartbeat/telemetry period
