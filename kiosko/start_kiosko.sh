@@ -23,8 +23,9 @@ pip install -r "$ROOT_DIR/requirements.txt" >/dev/null 2>&1
 export PORT=${PORT:-5000}
 
 echo "[start_kiosko] Starting app on :$PORT ..." | tee -a "$LOG_DIR/app.log"
-python3 "$ROOT_DIR/app.py" >>"$LOG_DIR/app.log" 2>&1 &
-echo $! > "$LOG_DIR/app.pid"
+# python3 "$ROOT_DIR/app.py" >>"$LOG_DIR/app.log" 2>&1 &
+# echo $! > "$LOG_DIR/app.pid"
+python3 "$ROOT_DIR/app.py"
 
 # To run at boot with systemd (recommended):
 # 1) Create /etc/systemd/system/kiosko.service with:
