@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
@@ -32,6 +33,7 @@ class PresenceService:
         topic_entry: Optional[str] = None,
         topic_full: Optional[str] = None,
         client_id: Optional[str] = None,
+        logger: Optional[logging.Logger] = None,
     ) -> None:
         self.broker = broker
         self.port = port
@@ -40,6 +42,7 @@ class PresenceService:
         self.topic_entry = topic_entry
         self.topic_full = topic_full
         self.client_id = client_id or f"kiosko-presence-{int(time.time())}"
+        self.logger = logger or logging.getLogger(__name__)
 
         self._lock = threading.Lock()
         self._state: Dict[str, Dict[str, Any]] = {
@@ -54,7 +57,7 @@ class PresenceService:
 
     # Factory -----------------------------------------------------------------
     @classmethod
-    def from_env(cls) -> "PresenceService":
+    def from_env(cls, logger: Optional[logging.Logger] = None) -> "PresenceService":
         broker = _env("KIOSKO_MQTT_HOST", _env("MQTT_BROKER", "127.0.0.1"))
         port = int(_env("KIOSKO_MQTT_PORT", _env("MQTT_PORT", "1883")))
         username = _env("KIOSKO_MQTT_USER", _env("MQTT_USER"))
@@ -74,13 +77,20 @@ class PresenceService:
             password=password,
             topic_entry=topic_entry,
             topic_full=topic_full,
-            client_id=f"kiosko-{device}"
+            client_id=f"kiosko-{device}",
+            logger=logger,
         )
 
     # Public API ---------------------------------------------------------------
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
             return
+        self.logger.info(
+            "Starting presence watcher broker=%s topics entry=%s full=%s",
+            self.broker,
+            self.topic_entry,
+            self.topic_full,
+        )
         self._thread = threading.Thread(target=self._run, name="presence-mqtt", daemon=True)
         self._thread.start()
 
@@ -126,9 +136,11 @@ class PresenceService:
         while not self._stop_event.is_set():
             try:
                 self._set_status("connecting", None)
+                self.logger.info("Connecting to MQTT %s:%s as %s", self.broker, self.port, self.client_id)
                 client.connect(self.broker, self.port, keepalive=30)
                 client.loop_forever()
             except Exception as exc:  # network errors
+                self.logger.exception("Presence MQTT error: %s", exc)
                 self._set_status("error", str(exc))
                 self._connected = False
                 if self._stop_event.wait(timeout=retry_delay):
@@ -140,17 +152,22 @@ class PresenceService:
         self._connected = success
         if success:
             self._set_status("online", None)
+            self.logger.info("Presence MQTT connected rc=%s", rc)
             if self.topic_entry:
                 client.subscribe(self.topic_entry, qos=1)
+                self.logger.info("Subscribed to %s", self.topic_entry)
             if self.topic_full:
                 client.subscribe(self.topic_full, qos=1)
+                self.logger.info("Subscribed to %s", self.topic_full)
         else:
             self._set_status("error", f"connect rc={rc}")
+            self.logger.error("Presence MQTT failed rc=%s", rc)
 
     def _on_disconnect(self, client, userdata, rc):
         self._connected = False
         if not self._stop_event.is_set():
             self._set_status("connecting", None)
+            self.logger.warning("Presence MQTT disconnected rc=%s", rc)
 
     def _on_message(self, client, userdata, msg):
         try:
@@ -170,6 +187,7 @@ class PresenceService:
     def _update_state(self, key: str, present: bool, ts: float) -> None:
         with self._lock:
             self._state[key] = {"present": present, "ts": ts}
+        self.logger.debug("Presence update %s present=%s ts=%s", key, present, ts)
 
     def _set_status(self, status: str, detail: Optional[str]) -> None:
         with self._lock:
@@ -177,5 +195,5 @@ class PresenceService:
             self._status_detail = detail
 
 
-def presence_service_from_env() -> PresenceService:
-    return PresenceService.from_env()
+def presence_service_from_env(logger: Optional[logging.Logger] = None) -> PresenceService:
+    return PresenceService.from_env(logger=logger)

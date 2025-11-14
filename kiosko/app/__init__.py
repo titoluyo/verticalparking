@@ -28,7 +28,7 @@ def create_app() -> Flask:
 
     # Background presence service (MQTT -> in-memory cache)
     try:
-        presence_service = presence_service_from_env()
+        presence_service = presence_service_from_env(app.logger)
         presence_service.start()
         app.config["PRESENCE_SERVICE"] = presence_service
     except Exception as exc:
