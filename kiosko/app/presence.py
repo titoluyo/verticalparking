@@ -54,6 +54,7 @@ class PresenceService:
         self._connected = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self.logger.debug("PresenceService initialized client_id=%s", self.client_id)
 
     # Factory -----------------------------------------------------------------
     @classmethod
@@ -83,7 +84,9 @@ class PresenceService:
 
     # Public API ---------------------------------------------------------------
     def start(self) -> None:
+        self.logger.debug("PresenceService start called")
         if self._thread and self._thread.is_alive():
+            self.logger.warning("PresenceService already started")
             return
         self.logger.info(
             "Starting presence watcher broker=%s topics entry=%s full=%s",
