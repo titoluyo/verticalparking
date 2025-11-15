@@ -89,7 +89,7 @@ class PresenceService:
             self.logger.warning("PresenceService already started")
             return
         self.logger.info(
-            "Starting presence watcher broker=%s topics entry=%s full=%s",
+            "Starting presence watcher broker=%s | topics entry=%s | full=%s",
             self.broker,
             self.topic_entry,
             self.topic_full,

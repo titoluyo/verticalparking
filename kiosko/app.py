@@ -4,6 +4,10 @@ Compatible with Windows 11 and Raspberry Pi OS.
 """
 from app import create_app
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 
 def _get_port() -> int:
