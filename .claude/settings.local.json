@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Read(./z_playground/**)"
+    ],
+    "ask": []
+  }
+}
