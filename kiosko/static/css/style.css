@@ -42,3 +42,15 @@ button, .btn, input { min-height: 48px; }
 .btn-large { font-size: 24px; padding: 20px 32px; width: 100%; max-width: 320px; }
 .placeholder { display: grid; gap: 16px; background: var(--panel); padding: 24px; border-radius: 16px; }
 
+.presence-card { display: grid; gap: 16px; background: var(--panel); padding: 28px; border-radius: 16px; margin-bottom: 24px; }
+.presence-indicator { display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-radius: 14px; background: #11161e; transition: background .2s ease; }
+.presence-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 0 rgba(0,0,0,0); transition: background .2s ease, box-shadow .2s ease; }
+.presence-indicator__title { font-size: 22px; margin: 0; }
+.presence-indicator__meta { margin: 4px 0 0; }
+.presence-indicator--occupied { background: rgba(46, 160, 67, 0.15); }
+.presence-indicator--occupied .presence-dot { background: var(--primary); box-shadow: 0 0 20px rgba(46, 160, 67, 0.6); }
+.presence-indicator--free { background: rgba(110, 118, 129, 0.2); }
+.presence-indicator--free .presence-dot { background: var(--secondary); }
+.presence-indicator--error { background: rgba(248, 81, 73, 0.15); }
+.presence-indicator--error .presence-dot { background: var(--danger); box-shadow: 0 0 20px rgba(248, 81, 73, 0.7); }
+.presence-indicator--idle .presence-dot { background: var(--muted); }
