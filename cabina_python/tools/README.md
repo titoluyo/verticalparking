@@ -1,6 +1,8 @@
 # ESP32-S3 Development Tools
 
-Tools for syncing code and monitoring the ESP32-S3 device running CircuitPython.
+Development tools for working with the `cabina_python` CircuitPython firmware. These tools help sync code to the ESP32-S3 device and monitor serial output during development.
+
+**Note:** This is a subfolder of `cabina_python/`. See the parent directory README for firmware documentation.
 
 ## Setup
 
