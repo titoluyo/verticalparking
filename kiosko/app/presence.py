@@ -176,11 +176,14 @@ class PresenceService:
         try:
             payload = json.loads(msg.payload.decode("utf-8"))
         except Exception:
+            self.logger.warning("Failed to parse MQTT message from topic %s", msg.topic)
             return
 
         sensor = payload.get("sensor")
         present = bool(payload.get("present"))
         ts = payload.get("ts") or time.time()
+
+        self.logger.info("MQTT message received topic=%s sensor=%s present=%s", msg.topic, sensor, present)
 
         if msg.topic == self.topic_entry or sensor == "ir1":
             self._update_state("entry", present, ts)

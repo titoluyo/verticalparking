@@ -2,6 +2,7 @@
 Flask application factory and extensions setup.
 Initializes DB, blueprints, sessions, and Swagger docs.
 """
+import logging
 from flask import Flask
 from flasgger import Swagger
 from .database import init_db
@@ -14,6 +15,11 @@ def create_app() -> Flask:
     app = Flask(__name__, static_folder="../static", template_folder="../templates")
     # Use a simple secret key for sessions; override via env in production.
     app.config["SECRET_KEY"] = "change-this-in-production"
+
+    # Configure logging to show INFO level and above (includes MQTT connection logs)
+    app.logger.setLevel(logging.INFO)
+    # Enable paho-mqtt library logging
+    logging.getLogger("paho.mqtt.client").setLevel(logging.INFO)
 
     # Initialize database and ensure tables exist
     with app.app_context():
