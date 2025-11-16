@@ -118,6 +118,10 @@ bool cabina_mqtt_connected(cabina_mqtt_t *m) {
 }
 
 void cabina_mqtt_publish_json(cabina_mqtt_t *m, const char *topic, const char *json, int qos, bool retain) {
+    if (!m || !m->client) {
+        ESP_LOGW(TAG, "Cannot publish: MQTT client not initialized");
+        return;
+    }
     esp_mqtt_client_publish(m->client, topic, json, 0, qos, retain);
 }
 

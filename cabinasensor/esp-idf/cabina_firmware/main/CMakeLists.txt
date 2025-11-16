@@ -3,6 +3,7 @@ idf_component_register(
         "app_main.c"
         "config.c"
         "hw_sensors.c"
+        "vl53l0x.c"
         "cabina_mqtt.c"
         "edge_detect.c"
         "telemetry.c"

@@ -94,6 +94,12 @@ void app_main(void) {
     cabina_load_config(&g_cfg);
     g_pub_interval_sec = g_cfg.pub_interval_sec;
 
+    // Set per-tag log levels (optional - reduces verbosity from specific components)
+    // Log levels: ESP_LOG_NONE, ESP_LOG_ERROR, ESP_LOG_WARN, ESP_LOG_INFO, ESP_LOG_DEBUG, ESP_LOG_VERBOSE
+    // esp_log_level_set("vl53l0x", ESP_LOG_WARN);  // Reduce VL53L0X logs to WARN only
+    // esp_log_level_set("wifi", ESP_LOG_WARN);     // Reduce Wi-Fi logs
+    // esp_log_level_set("mqtt", ESP_LOG_INFO);     // Keep MQTT at INFO
+
     wifi_init_sta(&g_cfg);
     start_sntp();
 
@@ -147,6 +153,8 @@ void app_main(void) {
 
     int64_t last_sample_ms = 0;
     int64_t last_pub_ms = 0;
+    int64_t last_log_ms = 0;
+    const int64_t LOG_INTERVAL_MS = 2000; // Log every 2 seconds
 
     while (true) {
         cabina_mqtt_loop(&g_mqtt);
@@ -155,6 +163,16 @@ void app_main(void) {
         if (now - last_sample_ms >= (int64_t)g_cfg.sample_period_ms) {
             sensor_snapshot_t snap;
             sensors_read(&snap);
+            
+            // Log sensor readings periodically
+            if (now - last_log_ms >= LOG_INTERVAL_MS) {
+                ESP_LOGI(TAG, "Sensors: IR1=%s IR2=%s Distance=%d mm",
+                         snap.ir1_present ? "ON" : "OFF",
+                         snap.ir2_present ? "ON" : "OFF",
+                         snap.distance_mm);
+                last_log_ms = now;
+            }
+            
             edge_event_t events[4];
             int n = edge_process(&g_edge, &snap, 20, events, 4);
             for (int i = 0; i < n; ++i) {

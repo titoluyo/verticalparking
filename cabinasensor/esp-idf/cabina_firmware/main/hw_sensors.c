@@ -1,4 +1,5 @@
 #include "hw_sensors.h"
+#include "vl53l0x.h"
 #include "driver/gpio.h"
 #include "driver/i2c.h"
 #include "esp_check.h"
@@ -7,6 +8,7 @@
 static const char *TAG = "sensors";
 static cabina_config_t g_cfg;
 static bool g_inited = false;
+static bool g_vl53_ready = false;
 
 // I2C config
 #define I2C_PORT I2C_NUM_0
@@ -43,6 +45,12 @@ void sensors_init(const cabina_config_t *cfg) {
     gpio_init_ir(g_cfg.gpio_ir2, g_cfg.ir_pullups);
     if (i2c_bus_init(g_cfg.i2c_sda, g_cfg.i2c_scl) == ESP_OK) {
         ESP_LOGI(TAG, "I2C initialized on SDA=%d SCL=%d", g_cfg.i2c_sda, g_cfg.i2c_scl);
+        // Initialize VL53L0X
+        if (vl53l0x_init(I2C_PORT) == VL53L0X_OK) {
+            g_vl53_ready = true;
+        } else {
+            ESP_LOGW(TAG, "VL53L0X initialization failed, distance readings will be unavailable");
+        }
     } else {
         ESP_LOGW(TAG, "I2C init failed");
     }
@@ -59,11 +67,6 @@ static bool read_ir_level(int pin, bool pullups) {
     }
 }
 
-// Placeholder VL53L0X read: returns -1 until driver integrated
-static int vl53l0x_read_mm(void) {
-    return -1;
-}
-
 void sensors_read(sensor_snapshot_t *out) {
     if (!g_inited) {
         out->ir1_present = false;
@@ -73,7 +76,18 @@ void sensors_read(sensor_snapshot_t *out) {
     }
     out->ir1_present = read_ir_level(g_cfg.gpio_ir1, g_cfg.ir_pullups);
     out->ir2_present = read_ir_level(g_cfg.gpio_ir2, g_cfg.ir_pullups);
-    out->distance_mm = vl53l0x_read_mm();
+    
+    if (g_vl53_ready) {
+        int dist = vl53l0x_read_range_mm(I2C_PORT);
+        if (dist >= 0) {
+            out->distance_mm = dist;
+        } else {
+            // Keep previous value on error, or set to -1 if first read
+            out->distance_mm = -1;
+        }
+    } else {
+        out->distance_mm = -1;
+    }
 }
 
 void sensors_deinit(void) {
