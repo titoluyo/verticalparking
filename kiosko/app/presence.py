@@ -6,7 +6,7 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 import paho.mqtt.client as mqtt
 
@@ -54,6 +54,8 @@ class PresenceService:
             "entry": {"present": False, "ts": None},
             "full": {"present": False, "ts": None},
         }
+        # Track previous combined state to detect transitions
+        self._previous_combined_state: Optional[Tuple[bool, bool]] = None  # (entry, full)
         self._status = "initializing"
         self._status_detail: Optional[str] = None
         self._connected = False
@@ -107,27 +109,74 @@ class PresenceService:
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
+            entry_present = bool(self._state["entry"]["present"])
+            full_present = bool(self._state["full"]["present"])
+            
             entry = {
-                "present": bool(self._state["entry"]["present"]),
+                "present": entry_present,
                 "ts": _iso(self._state["entry"]["ts"]),
             }
             full = {
-                "present": bool(self._state["full"]["present"]),
+                "present": full_present,
                 "ts": _iso(self._state["full"]["ts"]),
             }
             updated_at = None
             for ts in (self._state["entry"]["ts"], self._state["full"]["ts"]):
                 if ts:
                     updated_at = max(updated_at or ts, ts)
+            
+            # Determine state and transition
+            state_info = self._determine_state(entry_present, full_present)
+            
             return {
                 "entry": entry,
                 "full": full,
-                "occupied": bool(self._state["full"]["present"]),
+                "occupied": full_present,
+                "state": state_info["state"],
+                "message": state_info["message"],
                 "status": self._status,
                 "status_detail": self._status_detail,
                 "connected": self._connected,
                 "updated_at": _iso(updated_at),
             }
+    
+    def _determine_state(self, entry_present: bool, full_present: bool) -> Dict[str, str]:
+        """Determine the current state and message based on sensor values and previous state."""
+        prev_entry, prev_full = self._previous_combined_state or (False, False)
+        
+        # State 1: Both off -> Free
+        if not entry_present and not full_present:
+            state = "free"
+            message = "Espacio libre"
+        
+        # State 2: Entry on, Full off -> Transitioning
+        elif entry_present and not full_present:
+            # Check if coming from both off (entering) or from both on (exiting)
+            if not prev_entry and not prev_full:
+                state = "transitioning"
+                message = "Vehiculo ingresando..."
+            elif prev_entry and prev_full:
+                state = "transitioning"
+                message = "Vehiculo saliendo..."
+            else:
+                # Maintain previous transition state if unclear
+                state = "transitioning"
+                message = "Vehiculo ingresando..." if not prev_entry else "Vehiculo saliendo..."
+        
+        # State 3: Both on -> Fully entered
+        elif entry_present and full_present:
+            state = "entered"
+            message = "Vehiculo ingresado"
+        
+        # State 4: Entry off, Full on -> Shouldn't happen normally, treat as free
+        else:
+            state = "free"
+            message = "Espacio libre"
+        
+        # Update previous combined state for next call
+        self._previous_combined_state = (entry_present, full_present)
+        
+        return {"state": state, "message": message}
 
     # Internals ----------------------------------------------------------------
     def _run(self) -> None:

@@ -1,7 +1,7 @@
 const indicator = document.getElementById('presence-indicator');
 const titleEl = document.getElementById('presence-title');
 const metaEl = document.getElementById('presence-meta');
-const STATES = ['presence-indicator--occupied', 'presence-indicator--free', 'presence-indicator--idle', 'presence-indicator--error'];
+const STATES = ['presence-indicator--occupied', 'presence-indicator--free', 'presence-indicator--transitioning', 'presence-indicator--entered', 'presence-indicator--idle', 'presence-indicator--error'];
 
 function setIndicator(stateClass, title, meta) {
   if (!indicator || !titleEl || !metaEl) return;
@@ -30,11 +30,17 @@ async function refreshPresence() {
       return;
     }
 
-    // data.occupied is true when IR2 (full sensor) detects vehicle fully entered
-    if (data.occupied) {
-      setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
+    // Use state and message from backend if available, otherwise fall back to old logic
+    if (data.state && data.message) {
+      const stateClass = `presence-indicator--${data.state}`;
+      setIndicator(stateClass, data.message, formatMeta(data.updated_at));
     } else {
-      setIndicator('presence-indicator--free', 'Espacio libre', formatMeta(data.updated_at));
+      // Fallback for backward compatibility
+      if (data.occupied) {
+        setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
+      } else {
+        setIndicator('presence-indicator--free', 'Espacio libre', formatMeta(data.updated_at));
+      }
     }
   } catch (err) {
     console.warn('Presence fetch failed', err);
