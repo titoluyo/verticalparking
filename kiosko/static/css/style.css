@@ -53,8 +53,8 @@ button, .btn, input { min-height: 48px; }
 .presence-indicator--free .presence-dot { background: var(--secondary); }
 .presence-indicator--transitioning { background: rgba(255, 193, 7, 0.15); }
 .presence-indicator--transitioning .presence-dot { background: #ffc107; box-shadow: 0 0 20px rgba(255, 193, 7, 0.6); }
-.presence-indicator--entered { background: rgba(255, 193, 7, 0.15); }
-.presence-indicator--entered .presence-dot { background: #ffc107; box-shadow: 0 0 20px rgba(255, 193, 7, 0.6); }
+.presence-indicator--entered { background: rgba(46, 160, 67, 0.15); }
+.presence-indicator--entered .presence-dot { background: var(--primary); box-shadow: 0 0 20px rgba(46, 160, 67, 0.6); }
 .presence-indicator--error { background: rgba(248, 81, 73, 0.15); }
 .presence-indicator--error .presence-dot { background: var(--danger); box-shadow: 0 0 20px rgba(248, 81, 73, 0.7); }
 .presence-indicator--idle .presence-dot { background: var(--muted); }
