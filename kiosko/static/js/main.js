@@ -24,36 +24,120 @@ async function refreshPresence() {
     const res = await fetch('/api/presence', { cache: 'no-store' });
     if (!res.ok) throw new Error('Respuesta inválida');
     const data = await res.json();
-
-    if (!data.connected && data.status !== 'online') {
-      setIndicator('presence-indicator--error', 'Sin conexión', 'Revisar MQTT del sensor');
-      return;
-    }
-
-    // Use state and message from backend if available, otherwise fall back to old logic
-    if (data.state && data.message) {
-      const stateClass = `presence-indicator--${data.state}`;
-      setIndicator(stateClass, data.message, formatMeta(data.updated_at));
-    } else {
-      // Fallback for backward compatibility
-      if (data.occupied) {
-        setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
-      } else {
-        setIndicator('presence-indicator--free', 'Espacio libre', formatMeta(data.updated_at));
-      }
-    }
+    updatePresenceFromData(data);
   } catch (err) {
     console.warn('Presence fetch failed', err);
     setIndicator('presence-indicator--error', 'Estado desconocido', 'Imposible leer los sensores');
   }
 }
 
-function schedulePresenceUpdates() {
+let eventSource = null;
+let pollInterval = null;
+let visibilityHandlerAdded = false;
+
+function updatePresenceFromData(data) {
+  if (!data.connected && data.status !== 'online') {
+    setIndicator('presence-indicator--error', 'Sin conexión', 'Revisar MQTT del sensor');
+    return;
+  }
+
+  // Use state and message from backend if available, otherwise fall back to old logic
+  if (data.state && data.message) {
+    const stateClass = `presence-indicator--${data.state}`;
+    setIndicator(stateClass, data.message, formatMeta(data.updated_at));
+  } else {
+    // Fallback for backward compatibility
+    if (data.occupied) {
+      setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
+    } else {
+      setIndicator('presence-indicator--free', 'Espacio libre', formatMeta(data.updated_at));
+    }
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.hidden) {
+    // Page hidden - close SSE connection to save resources
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
+  } else {
+    // Page visible - reconnect SSE if it was closed
+    if (!eventSource || eventSource.readyState === EventSource.CLOSED) {
+      if (typeof EventSource !== 'undefined') {
+        connectPresenceStream();
+      } else {
+        refreshPresence();
+      }
+    }
+  }
+}
+
+function connectPresenceStream() {
+  // Check if EventSource is supported
+  if (typeof EventSource === 'undefined') {
+    console.warn('EventSource not supported, falling back to polling');
+    schedulePresencePolling();
+    return;
+  }
+
+  // Close existing connection if any
+  if (eventSource) {
+    eventSource.close();
+  }
+
+  try {
+    eventSource = new EventSource('/api/presence/stream');
+
+    eventSource.onopen = function() {
+      console.log('SSE connection opened');
+    };
+
+    eventSource.onmessage = function(event) {
+      try {
+        const data = JSON.parse(event.data);
+        updatePresenceFromData(data);
+      } catch (err) {
+        console.warn('Failed to parse SSE message:', err);
+      }
+    };
+
+    eventSource.onerror = function(err) {
+      console.warn('SSE connection error:', err);
+      // EventSource will automatically try to reconnect
+      // But if it fails completely, fall back to polling
+      if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+        console.warn('SSE connection closed, falling back to polling');
+        eventSource.close();
+        eventSource = null;
+        schedulePresencePolling();
+      }
+    };
+  } catch (err) {
+    console.warn('Failed to create EventSource:', err);
+    schedulePresencePolling();
+  }
+}
+
+function schedulePresencePolling() {
+  // Fallback to polling if SSE is not available
   refreshPresence();
-  setInterval(refreshPresence, 3000);
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshPresence();
-  });
+  if (pollInterval) {
+    clearInterval(pollInterval);
+  }
+  pollInterval = setInterval(refreshPresence, 3000);
+}
+
+function schedulePresenceUpdates() {
+  // Add visibility change handler once
+  if (!visibilityHandlerAdded) {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    visibilityHandlerAdded = true;
+  }
+  
+  // Try SSE first, fall back to polling if not supported
+  connectPresenceStream();
 }
 
 if (indicator) {

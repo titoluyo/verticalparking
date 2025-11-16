@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import threading
 import time
 from typing import Any, Dict, Optional, Tuple
@@ -61,6 +62,9 @@ class PresenceService:
         self._connected = False
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # SSE subscribers: list of queues for each connected client
+        self._subscribers: list[queue.Queue] = []
+        self._subscribers_lock = threading.Lock()
         self.logger.debug("PresenceService initialized client_id=%s", self.client_id)
 
     # Factory -----------------------------------------------------------------
@@ -106,6 +110,24 @@ class PresenceService:
 
     def stop(self) -> None:
         self._stop_event.set()
+    
+    def subscribe(self) -> queue.Queue:
+        """Subscribe to presence state updates. Returns a queue that will receive snapshot dicts."""
+        # Use a small queue size to prevent memory issues if client disconnects
+        client_queue: queue.Queue = queue.Queue(maxsize=10)
+        with self._subscribers_lock:
+            self._subscribers.append(client_queue)
+        self.logger.debug("New SSE subscriber registered, total subscribers: %d", len(self._subscribers))
+        return client_queue
+    
+    def unsubscribe(self, client_queue: queue.Queue) -> None:
+        """Unsubscribe from presence state updates."""
+        with self._subscribers_lock:
+            try:
+                self._subscribers.remove(client_queue)
+                self.logger.debug("SSE subscriber unregistered, remaining subscribers: %d", len(self._subscribers))
+            except ValueError:
+                pass  # Already removed
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
@@ -250,11 +272,45 @@ class PresenceService:
         with self._lock:
             self._state[key] = {"present": present, "ts": ts}
         self.logger.debug("Presence update %s present=%s ts=%s", key, present, ts)
+        # Notify all subscribers of state change
+        self._notify_subscribers()
+    
+    def _notify_subscribers(self) -> None:
+        """Send current snapshot to all subscribed SSE clients."""
+        snapshot = self.snapshot()
+        snapshot_json = json.dumps(snapshot)
+        
+        with self._subscribers_lock:
+            # Create a copy of the list to avoid holding lock while iterating
+            subscribers = list(self._subscribers)
+        
+        # Send to all subscribers, removing dead ones
+        dead_subscribers = []
+        for client_queue in subscribers:
+            try:
+                client_queue.put_nowait(snapshot_json)
+            except queue.Full:
+                # Queue is full, client might be disconnected, mark for removal
+                dead_subscribers.append(client_queue)
+            except Exception as e:
+                self.logger.warning("Error notifying subscriber: %s", e)
+                dead_subscribers.append(client_queue)
+        
+        # Remove dead subscribers
+        if dead_subscribers:
+            with self._subscribers_lock:
+                for dead in dead_subscribers:
+                    try:
+                        self._subscribers.remove(dead)
+                    except ValueError:
+                        pass
 
     def _set_status(self, status: str, detail: Optional[str]) -> None:
         with self._lock:
             self._status = status
             self._status_detail = detail
+        # Notify subscribers of status change (outside lock to avoid deadlock)
+        self._notify_subscribers()
 
 
 def presence_service_from_env(logger: Optional[logging.Logger] = None) -> PresenceService:
