@@ -9,9 +9,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
-.header { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--panel); position: sticky; top: 0; z-index: 10; }
-.container { max-width: 980px; margin: 24px auto; padding: 0 16px; }
+html, body { height: 100%; }
+body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); display: flex; flex-direction: column; overflow: hidden; }
+.header { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--panel); position: sticky; top: 0; z-index: 10; flex-shrink: 0; }
+.container { max-width: 980px; margin: 24px auto; padding: 0 16px; flex: 1; display: flex; align-items: center; justify-content: center; min-height: 0; }
 .container.narrow { max-width: 480px; }
 h1, h2 { margin: 0 0 16px; }
 .btn { display: inline-block; padding: 14px 18px; border-radius: 10px; text-decoration: none; color: var(--text); background: var(--secondary); font-size: 18px; border: none; cursor: pointer; }
@@ -37,12 +38,11 @@ input { padding: 12px 14px; font-size: 20px; border-radius: 8px; border: 1px sol
 button, .btn, input { min-height: 48px; }
 
 
-.kiosk-actions { display: grid; gap: 24px; background: var(--panel); padding: 32px; border-radius: 16px; text-align: center; }
-.kiosk-actions__buttons { display: grid; gap: 16px; justify-items: center; }
+.main-pane { display: grid; gap: 24px; background: var(--panel); padding: 32px; border-radius: 16px; max-width: 600px; width: 100%; }
+.action-buttons { display: grid; gap: 16px; justify-items: center; }
 .btn-large { font-size: 24px; padding: 20px 32px; width: 100%; max-width: 320px; }
 .placeholder { display: grid; gap: 16px; background: var(--panel); padding: 24px; border-radius: 16px; }
 
-.presence-card { display: grid; gap: 16px; background: var(--panel); padding: 28px; border-radius: 16px; margin-bottom: 24px; }
 .presence-indicator { display: flex; align-items: center; gap: 18px; padding: 18px 22px; border-radius: 14px; background: #11161e; transition: background .2s ease; }
 .presence-dot { width: 20px; height: 20px; border-radius: 50%; background: var(--muted); box-shadow: 0 0 0 0 rgba(0,0,0,0); transition: background .2s ease, box-shadow .2s ease; }
 .presence-indicator__title { font-size: 22px; margin: 0; }

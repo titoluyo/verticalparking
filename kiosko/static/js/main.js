@@ -1,8 +1,9 @@
 const indicator = document.getElementById('presence-indicator');
 const titleEl = document.getElementById('presence-title');
 const metaEl = document.getElementById('presence-meta');
-const presenceCard = document.getElementById('presence-card');
-const kioskActions = document.getElementById('kiosk-actions');
+const actionButtons = document.getElementById('action-buttons');
+const btnGuardar = document.getElementById('btn-guardar');
+const btnRecoger = document.getElementById('btn-recoger');
 const STATES = ['presence-indicator--occupied', 'presence-indicator--free', 'presence-indicator--transitioning', 'presence-indicator--entered', 'presence-indicator--idle', 'presence-indicator--error'];
 
 function setIndicator(stateClass, title, meta) {
@@ -67,14 +68,22 @@ function updatePresenceFromData(data) {
 }
 
 function updatePaneVisibility(state) {
-  // When state is "free" (Espacio libre) → show only kiosk-actions, hide presence-card
-  // For all other states → show only presence-card, hide kiosk-actions
+  // When state is "free" (Espacio libre) → show only "Recoger vehículo"
+  // When state is "entered" (Vehiculo ingresado) → show only "Guardar vehículo"
+  // Other states → hide both buttons
   if (state === 'free') {
-    if (presenceCard) presenceCard.style.display = 'none';
-    if (kioskActions) kioskActions.style.display = 'grid';
+    if (actionButtons) actionButtons.style.display = 'grid';
+    if (btnRecoger) btnRecoger.style.display = 'block';
+    if (btnGuardar) btnGuardar.style.display = 'none';
+  } else if (state === 'entered') {
+    if (actionButtons) actionButtons.style.display = 'grid';
+    if (btnGuardar) btnGuardar.style.display = 'block';
+    if (btnRecoger) btnRecoger.style.display = 'none';
   } else {
-    if (presenceCard) presenceCard.style.display = 'grid';
-    if (kioskActions) kioskActions.style.display = 'none';
+    // Hide both buttons for other states (transitioning, error, idle, etc.)
+    if (actionButtons) actionButtons.style.display = 'none';
+    if (btnGuardar) btnGuardar.style.display = 'none';
+    if (btnRecoger) btnRecoger.style.display = 'none';
   }
 }
 
@@ -159,10 +168,11 @@ function schedulePresenceUpdates() {
     visibilityHandlerAdded = true;
   }
   
-  // Set initial pane visibility (show presence-card by default until we know the state)
+  // Set initial button visibility (hidden by default until we know the state)
   // This will be updated when the first data arrives
-  if (presenceCard) presenceCard.style.display = 'grid';
-  if (kioskActions) kioskActions.style.display = 'none';
+  if (actionButtons) actionButtons.style.display = 'none';
+  if (btnGuardar) btnGuardar.style.display = 'none';
+  if (btnRecoger) btnRecoger.style.display = 'none';
   
   // Try SSE first, fall back to polling if not supported
   connectPresenceStream();

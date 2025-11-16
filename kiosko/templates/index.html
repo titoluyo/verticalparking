@@ -1,9 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Acciones principales - Kiosko{% endblock %}
 {% block content %}
-<section id="presence-card" class="presence-card">
-  <h2>Estado de la cabina</h2>
-  <p class="muted">Lecturas en vivo desde los sensores MQTT.</p>
+<section id="main-pane" class="main-pane">
   <div id="presence-indicator" class="presence-indicator presence-indicator--idle">
     <span class="presence-dot"></span>
     <div>
@@ -11,14 +9,9 @@
       <p id="presence-meta" class="presence-indicator__meta muted">Esperando la primera lectura...</p>
     </div>
   </div>
-</section>
-
-<section id="kiosk-actions" class="kiosk-actions">
-  <h2>Elige una acción</h2>
-  <p>Selecciona la opción que necesitas para continuar.</p>
-  <div class="kiosk-actions__buttons">
-    <a class="btn btn-primary btn-large" href="{{ url_for('routes.guardar_vehiculo') }}">Guardar vehículo</a>
-    <a class="btn btn-secondary btn-large" href="{{ url_for('routes.recoger_vehiculo') }}">Recoger vehículo</a>
+  <div id="action-buttons" class="action-buttons" style="display: none;">
+    <a id="btn-guardar" class="btn btn-primary btn-large" href="{{ url_for('routes.guardar_vehiculo') }}" style="display: none;">Guardar vehículo</a>
+    <a id="btn-recoger" class="btn btn-secondary btn-large" href="{{ url_for('routes.recoger_vehiculo') }}" style="display: none;">Recoger vehículo</a>
   </div>
 </section>
 {% endblock %}
