@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Acciones principales - Kiosko{% endblock %}
 {% block content %}
-<section class="presence-card">
+<section id="presence-card" class="presence-card">
   <h2>Estado de la cabina</h2>
   <p class="muted">Lecturas en vivo desde los sensores MQTT.</p>
   <div id="presence-indicator" class="presence-indicator presence-indicator--idle">
@@ -13,7 +13,7 @@
   </div>
 </section>
 
-<section class="kiosk-actions">
+<section id="kiosk-actions" class="kiosk-actions">
   <h2>Elige una acción</h2>
   <p>Selecciona la opción que necesitas para continuar.</p>
   <div class="kiosk-actions__buttons">

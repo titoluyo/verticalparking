@@ -1,6 +1,8 @@
 const indicator = document.getElementById('presence-indicator');
 const titleEl = document.getElementById('presence-title');
 const metaEl = document.getElementById('presence-meta');
+const presenceCard = document.getElementById('presence-card');
+const kioskActions = document.getElementById('kiosk-actions');
 const STATES = ['presence-indicator--occupied', 'presence-indicator--free', 'presence-indicator--transitioning', 'presence-indicator--entered', 'presence-indicator--idle', 'presence-indicator--error'];
 
 function setIndicator(stateClass, title, meta) {
@@ -28,6 +30,7 @@ async function refreshPresence() {
   } catch (err) {
     console.warn('Presence fetch failed', err);
     setIndicator('presence-indicator--error', 'Estado desconocido', 'Imposible leer los sensores');
+    updatePaneVisibility('error');
   }
 }
 
@@ -38,20 +41,40 @@ let visibilityHandlerAdded = false;
 function updatePresenceFromData(data) {
   if (!data.connected && data.status !== 'online') {
     setIndicator('presence-indicator--error', 'Sin conexión', 'Revisar MQTT del sensor');
+    updatePaneVisibility('error');
     return;
   }
 
   // Use state and message from backend if available, otherwise fall back to old logic
+  let currentState = null;
   if (data.state && data.message) {
     const stateClass = `presence-indicator--${data.state}`;
     setIndicator(stateClass, data.message, formatMeta(data.updated_at));
+    currentState = data.state;
   } else {
     // Fallback for backward compatibility
     if (data.occupied) {
       setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
+      currentState = 'occupied';
     } else {
       setIndicator('presence-indicator--free', 'Espacio libre', formatMeta(data.updated_at));
+      currentState = 'free';
     }
+  }
+  
+  // Update pane visibility based on state
+  updatePaneVisibility(currentState);
+}
+
+function updatePaneVisibility(state) {
+  // When state is "free" (Espacio libre) → show only kiosk-actions, hide presence-card
+  // For all other states → show only presence-card, hide kiosk-actions
+  if (state === 'free') {
+    if (presenceCard) presenceCard.style.display = 'none';
+    if (kioskActions) kioskActions.style.display = 'grid';
+  } else {
+    if (presenceCard) presenceCard.style.display = 'grid';
+    if (kioskActions) kioskActions.style.display = 'none';
   }
 }
 
@@ -135,6 +158,11 @@ function schedulePresenceUpdates() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
     visibilityHandlerAdded = true;
   }
+  
+  // Set initial pane visibility (show presence-card by default until we know the state)
+  // This will be updated when the first data arrives
+  if (presenceCard) presenceCard.style.display = 'grid';
+  if (kioskActions) kioskActions.style.display = 'none';
   
   // Try SSE first, fall back to polling if not supported
   connectPresenceStream();
