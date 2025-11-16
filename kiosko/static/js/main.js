@@ -30,6 +30,7 @@ async function refreshPresence() {
       return;
     }
 
+    // data.occupied is true when IR2 (full sensor) detects vehicle fully entered
     if (data.occupied) {
       setIndicator('presence-indicator--occupied', 'Vehículo detectado', formatMeta(data.updated_at));
     } else {

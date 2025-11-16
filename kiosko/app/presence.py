@@ -22,7 +22,12 @@ def _iso(ts: Optional[float]) -> Optional[str]:
 
 
 class PresenceService:
-    """Subscribes to retained presence topics and stores the latest state in memory."""
+    """Subscribes to retained presence topics and stores the latest state in memory.
+    
+    Monitors two IR sensors:
+    - Entry sensor (IR1): Detects when a vehicle starts entering the cabin
+    - Full sensor (IR2): Detects when a vehicle is fully entered into the cabin
+    """
 
     def __init__(
         self,
@@ -185,8 +190,10 @@ class PresenceService:
 
         self.logger.info("MQTT message received topic=%s sensor=%s present=%s", msg.topic, sensor, present)
 
+        # IR1 (entry sensor): detects when vehicle starts entering the cabin
         if msg.topic == self.topic_entry or sensor == "ir1":
             self._update_state("entry", present, ts)
+        # IR2 (full sensor): detects when vehicle is fully entered into the cabin
         elif msg.topic == self.topic_full or sensor == "ir2":
             self._update_state("full", present, ts)
 

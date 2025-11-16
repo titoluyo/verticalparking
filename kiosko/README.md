@@ -219,6 +219,10 @@ Expected MQTT message format:
 }
 ```
 
+**Sensor Names:**
+- `ir1` (Entry Sensor): Detects when a vehicle starts entering the cabin
+- `ir2` (Full Sensor): Detects when a vehicle is fully entered into the cabin
+
 ## Frontend
 
 The frontend uses vanilla JavaScript to:
@@ -228,10 +232,14 @@ The frontend uses vanilla JavaScript to:
 
 ### Presence States
 
-- **Occupied** (red): Vehicle detected in parking space
-- **Free** (green): Space available
+- **Occupied** (red): Vehicle fully entered in cabin (IR2 sensor active)
+- **Free** (green): Space available (no vehicle detected)
 - **Idle** (gray): No data received yet
 - **Error** (yellow): Connection issues
+
+The system uses two IR sensors:
+- **Entry Sensor (IR1)**: Located at the beginning of the cabin, detects when a vehicle starts entering
+- **Full Sensor (IR2)**: Located at the end of the cabin, detects when a vehicle is fully entered
 
 ## Hardware Integration
 

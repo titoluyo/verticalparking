@@ -25,9 +25,9 @@ class Sensors:
         self._last_dist = None
 
     def read(self):
-        # If using pull-ups: active-low → occupied when value==False
-        occ1 = (not self._ir1.value) if config.IR_PULLUPS else bool(self._ir1.value)
-        occ2 = (not self._ir2.value) if config.IR_PULLUPS else bool(self._ir2.value)
+        # Inverted logic: true when detecting something, false when not detecting
+        occ1 = bool(self._ir1.value) if config.IR_PULLUPS else (not self._ir1.value)
+        occ2 = bool(self._ir2.value) if config.IR_PULLUPS else (not self._ir2.value)
         dist = int(self._vl53.range)
         return occ1, occ2, dist
 
