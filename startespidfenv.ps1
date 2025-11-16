@@ -1,0 +1,1 @@
+pwsh.exe -ExecutionPolicy Bypass -NoExit -File "C:\Espressif/Initialize-Idf.ps1" -IdfId esp-idf-29323a3f5a0574597d6dbaa0af20c775
