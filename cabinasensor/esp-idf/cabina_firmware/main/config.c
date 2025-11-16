@@ -93,6 +93,7 @@ void cabina_load_config(cabina_config_t *out) {
         
         cabina_nvs_get_u32(nvs, "pub_interval", &out->pub_interval_sec, CONFIG_CABINA_PUB_INTERVAL_SEC);
         cabina_nvs_get_u32(nvs, "sample_period", &out->sample_period_ms, CONFIG_CABINA_SAMPLE_PERIOD_MS);
+        cabina_nvs_get_u32(nvs, "dist_threshold", &out->distance_threshold_mm, CONFIG_CABINA_DISTANCE_THRESHOLD_MM);
         
         cabina_nvs_get_u8(nvs, "presence_retain", &out->presence_retain, CONFIG_CABINA_PRESENCE_RETAIN);
         cabina_nvs_get_u8(nvs, "ir_pullups", &out->ir_pullups, CONFIG_CABINA_IR_PULLUPS);
@@ -111,6 +112,7 @@ void cabina_load_config(cabina_config_t *out) {
         out->mqtt_port = CONFIG_CABINA_MQTT_PORT;
         out->pub_interval_sec = CONFIG_CABINA_PUB_INTERVAL_SEC;
         out->sample_period_ms = CONFIG_CABINA_SAMPLE_PERIOD_MS;
+        out->distance_threshold_mm = CONFIG_CABINA_DISTANCE_THRESHOLD_MM;
         out->presence_retain = CONFIG_CABINA_PRESENCE_RETAIN;
         out->ir_pullups = CONFIG_CABINA_IR_PULLUPS;
         ESP_LOGI(TAG, "Config loaded from Kconfig defaults");

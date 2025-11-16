@@ -50,6 +50,15 @@ config CABINA_SAMPLE_PERIOD_MS
     default 50
     range 5 1000
 
+config CABINA_DISTANCE_THRESHOLD_MM
+    int "Distance change threshold for events (mm)"
+    default 20
+    range 5 200
+    help
+        Minimum distance change (in mm) required to trigger a distance event.
+        Smaller values = more sensitive, larger values = less sensitive.
+        Default 20mm matches CircuitPython implementation.
+
 config CABINA_IR_PULLUPS
     bool "Enable internal pull-ups for IR inputs"
     default y

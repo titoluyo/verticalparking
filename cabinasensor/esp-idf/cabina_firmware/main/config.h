@@ -16,6 +16,7 @@ typedef struct {
     bool        presence_retain;
     uint32_t    pub_interval_sec;
     uint32_t    sample_period_ms;
+    uint32_t    distance_threshold_mm;
     bool        ir_pullups;
 
     int         gpio_ir1;

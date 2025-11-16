@@ -174,7 +174,7 @@ void app_main(void) {
             }
             
             edge_event_t events[4];
-            int n = edge_process(&g_edge, &snap, 20, events, 4);
+            int n = edge_process(&g_edge, &snap, (int)g_cfg.distance_threshold_mm, events, 4);
             for (int i = 0; i < n; ++i) {
                 if (events[i].type == EV_IR1) {
                     char *js = json_presence(&g_cfg, "ir1", events[i].present, NULL);
@@ -193,6 +193,8 @@ void app_main(void) {
                         ESP_LOGE(TAG, "OOM building ir2 JSON");
                     }
                 } else if (events[i].type == EV_DISTANCE) {
+                    ESP_LOGI(TAG, "Distance event: %d mm -> %d mm (threshold=%d mm)", 
+                             events[i].dist.from_mm, events[i].dist.to_mm, (int)g_cfg.distance_threshold_mm);
                     char *js = json_distance(&g_cfg, events[i].dist.from_mm, events[i].dist.to_mm, NULL);
                     if (js) {
                         cabina_mqtt_publish_json(&g_mqtt, topic_dist, js, 0, false);

@@ -130,6 +130,7 @@ The firmware supports loading configuration from NVS (Non-Volatile Storage) at r
 - `site_id` - Site identifier
 - `pub_interval` - Telemetry publish interval in seconds (uint32)
 - `sample_period` - Sensor sample period in milliseconds (uint32)
+- `dist_threshold` - Distance change threshold in millimeters (uint32, default: 20)
 - `presence_retain` - Retain presence messages (uint8: 0/1)
 - `ir_pullups` - Enable IR input pull-ups (uint8: 0/1)
 
@@ -277,6 +278,30 @@ cabinasensor/esp-idf/cabina_firmware/
 - Verify pull-up configuration (`IR_PULLUPS` setting)
 - Test sensors individually
 - Check serial logs for I2C errors
+
+### VL53L0X Distance Sensor
+
+**Accuracy Notes:**
+- The VL53L0X sensor has ±2cm accuracy in typical conditions
+- Accuracy may decrease at longer ranges (>23cm)
+- Status codes 0x5D indicate valid readings with warnings (reduced accuracy)
+- Values ending in 0x06/0x07 at longer ranges are normal but may indicate reduced accuracy
+
+**Adjusting Distance Threshold:**
+- Default threshold: 20mm (matches CircuitPython implementation)
+- Configure via `menuconfig` → Cabina Firmware Configuration → Distance threshold
+- Or set NVS key `dist_threshold` (uint32, in millimeters)
+- Smaller values = more sensitive (more events)
+- Larger values = less sensitive (fewer events)
+- Recommended range: 10-50mm depending on use case
+
+**Hardware Testing:**
+1. Monitor serial output for sensor readings (logged every 2 seconds)
+2. Move object at known distances (e.g., 5cm, 10cm, 20cm, 30cm)
+3. Verify distance readings are within ±2cm of actual distance
+4. Test distance threshold by moving object slowly and observing when events trigger
+5. Adjust threshold if events trigger too frequently or not frequently enough
+6. Test at maximum expected range to verify sensor behavior
 
 ### Build Issues
 
