@@ -5,6 +5,8 @@
 #include <string.h>
 
 static const char *TAG = "vl53l0x";
+static const int VL53L0X_MAX_STABLE_DISTANCE_MM = 1200;
+static int g_last_valid_distance_mm = -1;
 
 // Minimum time between measurements (timing budget 33ms + overhead)
 static const int MIN_MEASUREMENT_INTERVAL_MS = 50;
@@ -352,6 +354,25 @@ int vl53l0x_read_range_mm(int i2c_port) {
     if (distance > 2000 && (status_low == 0x0D || status_low == 0x0E || status_low == 0x0F)) {
         ESP_LOGD(TAG, "VL53L0X rejecting high distance %d mm with warning status 0x%01X (unreliable)", distance, status_low);
         return VL53L0X_ERROR;
+    }
+
+    bool suspicious_short_glitch = (distance == 20 && status_low != 0x00);
+
+    if (distance > VL53L0X_MAX_STABLE_DISTANCE_MM) {
+        distance = VL53L0X_MAX_STABLE_DISTANCE_MM;
+    }
+
+    if (suspicious_short_glitch) {
+        if (g_last_valid_distance_mm >= 0) {
+            ESP_LOGD(TAG, "VL53L0X ignoring suspicious 20mm reading with status=0x%02X, keeping last %d mm",
+                     range_status, g_last_valid_distance_mm);
+            distance = g_last_valid_distance_mm;
+        } else {
+            ESP_LOGW(TAG, "VL53L0X ignoring initial suspicious 20mm reading (status=0x%02X)", range_status);
+            return VL53L0X_ERROR;
+        }
+    } else {
+        g_last_valid_distance_mm = distance;
     }
 
     ESP_LOGD(TAG, "VL53L0X read: %d mm (status=0x%02X, int=0x%02X)", distance, range_status, int_status);
