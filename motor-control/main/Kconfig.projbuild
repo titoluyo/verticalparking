@@ -1,0 +1,46 @@
+menu "Motor Control Configuration"
+
+config MOTOR_CONTROL_RELAY_GPIO
+    int "Relay GPIO number"
+    range 0 48
+    default 10
+
+config MOTOR_CONTROL_RELAY_ACTIVE_HIGH
+    bool "Relay turns on with logic HIGH"
+    default y
+
+config MOTOR_CONTROL_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+
+config MOTOR_CONTROL_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+
+config MOTOR_CONTROL_MQTT_URI
+    string "MQTT broker URI"
+    default "mqtt://192.168.1.50:1883"
+
+config MOTOR_CONTROL_MQTT_USERNAME
+    string "MQTT username"
+    default ""
+
+config MOTOR_CONTROL_MQTT_PASSWORD
+    string "MQTT password"
+    default ""
+
+config MOTOR_CONTROL_MQTT_CLIENT_ID
+    string "MQTT client ID"
+    default "motor-control"
+
+config MOTOR_CONTROL_MQTT_TOPIC
+    string "MQTT command topic"
+    default "parking/garage-01/motor"
+
+config MOTOR_CONTROL_MQTT_QOS
+    int "MQTT subscription QoS"
+    range 0 2
+    default 1
+
+endmenu
+
