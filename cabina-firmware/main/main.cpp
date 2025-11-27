@@ -6,10 +6,10 @@
 #include "vl53l0x.h"
 #include <cstdio>
 
-static const char *TAG = "vl53l0x_example";
+static const char *TAG = "cabina_firmware";
 
 extern "C" void app_main(void) {
-    ESP_LOGI(TAG, "VL53L0X Example Starting");
+    ESP_LOGI(TAG, "Cabina Firmware Starting");
 
     // I2C configuration
     const i2c_port_t i2c_port = I2C_NUM_0;

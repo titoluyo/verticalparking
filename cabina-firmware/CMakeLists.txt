@@ -11,6 +11,6 @@ set(
   "List of components to include"
   )
 
-project(vl53l_example)
+project(cabina-firmware)
 
 set(CMAKE_CXX_STANDARD 20)
