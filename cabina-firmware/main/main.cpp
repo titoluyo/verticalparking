@@ -1,8 +1,11 @@
 #include "sdkconfig.h"
-#include "driver/i2c.h"
-#include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "nvs_flash.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "wifi_client.h"
+#include "i2c_bus.h"
 #include "vl53l0x.h"
 #include <cstdio>
 
@@ -11,45 +14,39 @@ static const char *TAG = "cabina_firmware";
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Cabina Firmware Starting");
 
-    // I2C configuration
+    // Initialize NVS (required for WiFi)
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    // Initialize WiFi
+    if (wifi_client_init() != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi initialization failed");
+        return;
+    }
+
+    char ip_str[16];
+    if (wifi_client_get_ip(ip_str, sizeof(ip_str)) == ESP_OK) {
+        ESP_LOGI(TAG, "WiFi connected with IP: %s", ip_str);
+    }
+
+    // Initialize I2C bus
     const i2c_port_t i2c_port = I2C_NUM_0;
-    const int i2c_freq_hz = CONFIG_EXAMPLE_I2C_CLOCK_SPEED_HZ;
-    const gpio_num_t i2c_sda = (gpio_num_t)CONFIG_EXAMPLE_I2C_SDA_GPIO;
-    const gpio_num_t i2c_scl = (gpio_num_t)CONFIG_EXAMPLE_I2C_SCL_GPIO;
-
-    ESP_LOGI(TAG, "I2C Config: SDA=%d, SCL=%d, Speed=%d Hz", i2c_sda, i2c_scl, i2c_freq_hz);
-
-    // Configure I2C
-    i2c_config_t conf = {
-        .mode = I2C_MODE_MASTER,
-        .sda_io_num = i2c_sda,
-        .scl_io_num = i2c_scl,
-        .sda_pullup_en = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en = GPIO_PULLUP_ENABLE,
-        .master = {
-            .clk_speed = i2c_freq_hz,
-        },
-        .clk_flags = 0,
-    };
-
-    esp_err_t err = i2c_param_config(i2c_port, &conf);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "i2c_param_config failed: %s", esp_err_to_name(err));
+    if (i2c_bus_init(i2c_port, 
+                     CONFIG_EXAMPLE_I2C_SDA_GPIO, 
+                     CONFIG_EXAMPLE_I2C_SCL_GPIO, 
+                     CONFIG_EXAMPLE_I2C_CLOCK_SPEED_HZ) != ESP_OK) {
+        ESP_LOGE(TAG, "I2C bus initialization failed");
         return;
     }
 
-    err = i2c_driver_install(i2c_port, I2C_MODE_MASTER, 0, 0, 0);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "i2c_driver_install failed: %s", esp_err_to_name(err));
-        return;
-    }
-
-    ESP_LOGI(TAG, "I2C initialized successfully");
-
-    // Initialize VL53L0X
+    // Initialize VL53L0X sensor
     if (vl53l0x_init(i2c_port) != VL53L0X_OK) {
         ESP_LOGE(TAG, "VL53L0X initialization failed");
-        i2c_driver_delete(i2c_port);
+        i2c_bus_deinit(i2c_port);
         return;
     }
 
@@ -57,6 +54,7 @@ extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Starting distance measurements...");
     printf("time (s), distance (mm)\n");
 
+    // Main measurement loop
     int64_t start_time = esp_timer_get_time();
     
     while (true) {

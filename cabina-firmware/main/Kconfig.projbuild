@@ -40,4 +40,16 @@ menu "Example Configuration"
         help
             I2C clock speed in Hz.
 
+    config EXAMPLE_WIFI_SSID
+        string "Wi-Fi SSID"
+        default "YourWiFiNetwork"
+        help
+            SSID (network name) for the Wi-Fi connection.
+
+    config EXAMPLE_WIFI_PASSWORD
+        string "Wi-Fi Password"
+        default "YourWiFiPassword"
+        help
+            Password for the Wi-Fi network.
+
 endmenu

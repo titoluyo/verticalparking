@@ -1,4 +1,6 @@
 idf_component_register(SRCS "main.cpp"
                               "vl53l0x.c"
+                              "wifi_client.cpp"
+                              "i2c_bus.cpp"
                        INCLUDE_DIRS "."
-                       REQUIRES driver esp_timer)
+                       REQUIRES driver esp_timer esp_wifi esp_netif esp_event nvs_flash freertos)
