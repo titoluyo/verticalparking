@@ -59,6 +59,49 @@ menu "Example Configuration"
         help
             Maximum number of retry attempts when connecting to Wi-Fi.
 
+    config EXAMPLE_MQTT_BROKER
+        string "MQTT Broker Address"
+        default "192.168.1.10"
+        help
+            MQTT broker hostname or IP address.
+
+    config EXAMPLE_MQTT_PORT
+        int "MQTT Broker Port"
+        range 1 65535
+        default 1883
+        help
+            MQTT broker port number.
+
+    config EXAMPLE_MQTT_USER
+        string "MQTT Username"
+        default ""
+        help
+            MQTT username (leave empty if no authentication required).
+
+    config EXAMPLE_MQTT_PASSWORD
+        string "MQTT Password"
+        default ""
+        help
+            MQTT password (leave empty if no authentication required).
+
+    config EXAMPLE_MQTT_TOPIC_BASE
+        string "MQTT Topic Base"
+        default "parking"
+        help
+            Base topic for MQTT messages. Full topic will be: {base}/{site_id}/{device_id}/{subtopic}
+
+    config EXAMPLE_MQTT_SITE_ID
+        string "MQTT Site ID"
+        default "default-site"
+        help
+            Site identifier for MQTT topic construction.
+
+    config EXAMPLE_MQTT_DEVICE_ID
+        string "MQTT Device ID"
+        default "cabina-01"
+        help
+            Device identifier for MQTT topic construction.
+
     config EXAMPLE_IR1_GPIO
         int "IR Sensor 1 GPIO Pin"
         range 0 50
