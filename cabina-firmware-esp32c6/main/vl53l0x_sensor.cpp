@@ -36,6 +36,8 @@ bool Vl53l0xSensor::init()
     });
 
     // Create VL53L sensor instance
+    // Note: ESP++ component expects VL53L4CX, but we're using VL53L0X
+    // The model ID check will fail, but we'll continue anyway
     vl53l_ = std::make_unique<espp::Vl53l>(espp::Vl53l::Config{
         .device_address = config_.device_address,
         .write = std::bind(&espp::I2c::write, i2c_.get(),
@@ -46,8 +48,12 @@ bool Vl53l0xSensor::init()
                          std::placeholders::_1,
                          std::placeholders::_2,
                          std::placeholders::_3),
+        .auto_init = true,  // Let it try to auto-init
         .log_level = config_.log_level
     });
+    
+    // Wait a bit for initialization to complete
+    std::this_thread::sleep_for(50ms);
 
     std::error_code ec;
 
