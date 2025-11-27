@@ -6,6 +6,7 @@
 #include "freertos/task.h"
 #include "wifi_client.h"
 #include "i2c_bus.h"
+#include "ir_sensors.h"
 #include "vl53l0x.h"
 #include <cstdio>
 
@@ -33,6 +34,14 @@ extern "C" void app_main(void) {
         ESP_LOGI(TAG, "WiFi connected with IP: %s", ip_str);
     }
 
+    // Initialize IR sensors
+    if (ir_sensors_init(CONFIG_EXAMPLE_IR1_GPIO, 
+                        CONFIG_EXAMPLE_IR2_GPIO, 
+                        CONFIG_EXAMPLE_IR_PULLUPS) != ESP_OK) {
+        ESP_LOGE(TAG, "IR sensors initialization failed");
+        return;
+    }
+
     // Initialize I2C bus
     const i2c_port_t i2c_port = I2C_NUM_0;
     if (i2c_bus_init(i2c_port, 
@@ -51,20 +60,28 @@ extern "C" void app_main(void) {
     }
 
     ESP_LOGI(TAG, "VL53L0X initialized successfully");
-    ESP_LOGI(TAG, "Starting distance measurements...");
-    printf("time (s), distance (mm)\n");
+    ESP_LOGI(TAG, "Starting sensor measurements...");
+    printf("time (s), distance (mm), ir1, ir2\n");
 
     // Main measurement loop
     int64_t start_time = esp_timer_get_time();
     
     while (true) {
         int distance_mm = vl53l0x_read_range_mm(i2c_port);
+        ir_sensors_state_t ir_state;
+        ir_sensors_read(&ir_state);
+        
+        int64_t now = esp_timer_get_time();
+        float elapsed = (float)(now - start_time) / 1e6f;
         
         if (distance_mm >= 0) {
-            int64_t now = esp_timer_get_time();
-            float elapsed = (float)(now - start_time) / 1e6f;
-            printf("%.3f, %d\n", elapsed, distance_mm);
+            printf("%.3f, %d, %d, %d\n", elapsed, distance_mm, 
+                   ir_state.ir1_present ? 1 : 0, 
+                   ir_state.ir2_present ? 1 : 0);
         } else {
+            printf("%.3f, -1, %d, %d\n", elapsed,
+                   ir_state.ir1_present ? 1 : 0, 
+                   ir_state.ir2_present ? 1 : 0);
             ESP_LOGW(TAG, "Failed to read distance");
         }
 

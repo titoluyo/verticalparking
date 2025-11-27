@@ -52,4 +52,32 @@ menu "Example Configuration"
         help
             Password for the Wi-Fi network.
 
+    config EXAMPLE_WIFI_MAX_RETRY
+        int "Wi-Fi Maximum Connection Retries"
+        range 1 20
+        default 5
+        help
+            Maximum number of retry attempts when connecting to Wi-Fi.
+
+    config EXAMPLE_IR1_GPIO
+        int "IR Sensor 1 GPIO Pin"
+        range 0 50
+        default 2
+        help
+            GPIO pin number for IR presence sensor 1.
+
+    config EXAMPLE_IR2_GPIO
+        int "IR Sensor 2 GPIO Pin"
+        range 0 50
+        default 3
+        help
+            GPIO pin number for IR presence sensor 2.
+
+    config EXAMPLE_IR_PULLUPS
+        bool "Enable pull-ups for IR sensors"
+        default y
+        help
+            Enable internal pull-ups for IR sensor inputs. If enabled, high level means presence detected.
+            If disabled, low level means presence detected.
+
 endmenu
