@@ -123,4 +123,25 @@ menu "Example Configuration"
             Enable internal pull-ups for IR sensor inputs. If enabled, high level means presence detected.
             If disabled, low level means presence detected.
 
+    config EXAMPLE_DISTANCE_THRESHOLD_MM
+        int "Distance Change Threshold (mm)"
+        range 5 200
+        default 20
+        help
+            Minimum distance change (in mm) required to trigger a distance event.
+            Smaller values = more sensitive, larger values = less sensitive.
+
+    config EXAMPLE_PRESENCE_RETAIN
+        bool "Retain presence messages"
+        default y
+        help
+            Whether to retain IR presence messages on MQTT broker.
+
+    config EXAMPLE_STATUS_INTERVAL_SEC
+        int "Status Heartbeat Interval (seconds)"
+        range 1 3600
+        default 10
+        help
+            Interval for publishing status heartbeat messages to MQTT.
+
 endmenu
