@@ -71,12 +71,14 @@ class PresenceService:
                     "entry": {"present": False, "ts": None},
                     "full": {"present": False, "ts": None},
                     "previous": (False, False),
+                    "distance": {"from_mm": None, "to_mm": None, "ts": None},
                 }
         else:
             # Single-cabin mode (backward compatible)
             self._state = {
                 "entry": {"present": False, "ts": None},
                 "full": {"present": False, "ts": None},
+                "distance": {"from_mm": None, "to_mm": None, "ts": None},
             }
             self._previous_combined_state: Optional[Tuple[bool, bool]] = None  # (entry, full)
         
@@ -235,10 +237,11 @@ class PresenceService:
                     
                     state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
                     updated_at = None
-                    for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"]):
+                    for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
                         if ts:
                             updated_at = max(updated_at or ts, ts)
                     
+                    distance = cabin_state.get("distance", {})
                     return {
                         "cabin": cabin_id,
                         "entry": {
@@ -248,6 +251,11 @@ class PresenceService:
                         "full": {
                             "present": full_present,
                             "ts": _iso(cabin_state["full"]["ts"]),
+                        },
+                        "distance": {
+                            "from_mm": distance.get("from_mm"),
+                            "to_mm": distance.get("to_mm"),
+                            "ts": _iso(distance.get("ts")),
                         },
                         "occupied": full_present,
                         "state": state_info["state"],
@@ -269,7 +277,8 @@ class PresenceService:
                         
                         state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
                         updated_at = None
-                        for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"]):
+                        distance = cabin_state.get("distance", {})
+                        for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], distance.get("ts")):
                             if ts:
                                 updated_at = max(updated_at or ts, ts)
                                 overall_updated_at = max(overall_updated_at or ts, ts) if overall_updated_at else ts
@@ -282,6 +291,11 @@ class PresenceService:
                             "full": {
                                 "present": full_present,
                                 "ts": _iso(cabin_state["full"]["ts"]),
+                            },
+                            "distance": {
+                                "from_mm": distance.get("from_mm"),
+                                "to_mm": distance.get("to_mm"),
+                                "ts": _iso(distance.get("ts")),
                             },
                             "occupied": full_present,
                             "state": state_info["state"],
@@ -308,8 +322,9 @@ class PresenceService:
                     "present": full_present,
                     "ts": _iso(self._state["full"]["ts"]),
                 }
+                distance = self._state.get("distance", {})
                 updated_at = None
-                for ts in (self._state["entry"]["ts"], self._state["full"]["ts"]):
+                for ts in (self._state["entry"]["ts"], self._state["full"]["ts"], distance.get("ts")):
                     if ts:
                         updated_at = max(updated_at or ts, ts)
                 
@@ -320,6 +335,11 @@ class PresenceService:
                 return {
                     "entry": entry,
                     "full": full,
+                    "distance": {
+                        "from_mm": distance.get("from_mm"),
+                        "to_mm": distance.get("to_mm"),
+                        "ts": _iso(distance.get("ts")),
+                    },
                     "occupied": full_present,
                     "state": state_info["state"],
                     "message": state_info["message"],
@@ -403,9 +423,11 @@ class PresenceService:
                     device_id = cabin
                     topic_entry = f"{self.topic_base}/{self.site}/{device_id}/presence/entry"
                     topic_full = f"{self.topic_base}/{self.site}/{device_id}/presence/full"
+                    topic_distance = f"{self.topic_base}/{self.site}/{device_id}/distance/event"
                     client.subscribe(topic_entry, qos=1)
                     client.subscribe(topic_full, qos=1)
-                    self.logger.info("Subscribed to %s and %s", topic_entry, topic_full)
+                    client.subscribe(topic_distance, qos=0)  # Distance events are non-retained, QoS 0
+                    self.logger.info("Subscribed to %s, %s, and %s", topic_entry, topic_full, topic_distance)
             else:
                 # Single-cabin mode
                 if self.topic_entry:
@@ -414,6 +436,16 @@ class PresenceService:
                 if self.topic_full:
                     client.subscribe(self.topic_full, qos=1)
                     self.logger.info("Subscribed to %s", self.topic_full)
+                # Subscribe to distance topic for single-cabin mode
+                # Extract device ID from topic_entry or topic_full
+                if self.topic_entry:
+                    # Extract device from topic: parking/site/device/presence/entry
+                    parts = self.topic_entry.split("/")
+                    if len(parts) >= 3:
+                        device_id = parts[2]
+                        topic_distance = f"{self.topic_base}/{self.site}/{device_id}/distance/event"
+                        client.subscribe(topic_distance, qos=0)
+                        self.logger.info("Subscribed to %s", topic_distance)
         else:
             self._set_status("error", f"connect rc={rc}")
             self.logger.error("Presence MQTT failed rc=%s", rc)
@@ -435,9 +467,14 @@ class PresenceService:
         present = bool(payload.get("present"))
         ts = payload.get("ts") or time.time()
         device = payload.get("device", "")
+        
+        # Check if this is a distance message
+        from_mm = payload.get("from_mm")
+        to_mm = payload.get("to_mm")
+        is_distance = from_mm is not None or to_mm is not None
 
-        self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s", 
-                         msg.topic, device, sensor, present)
+        self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s", 
+                         msg.topic, device, sensor, present, is_distance)
 
         if self._multi_cabin_mode:
             # Extract cabin ID from device name or topic
@@ -453,8 +490,11 @@ class PresenceService:
                         cabin_id = device_part
             
             if cabin_id and cabin_id in self.cabins:
-                # Determine sensor type
-                if sensor == "ir1" or "entry" in msg.topic:
+                # Handle distance messages
+                if is_distance or "distance" in msg.topic:
+                    self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
+                # Determine sensor type for presence messages
+                elif sensor == "ir1" or "entry" in msg.topic:
                     self._update_state_multi(cabin_id, "entry", present, ts)
                 elif sensor == "ir2" or "full" in msg.topic:
                     self._update_state_multi(cabin_id, "full", present, ts)
@@ -462,8 +502,11 @@ class PresenceService:
                 self.logger.debug("Ignoring message for unknown cabin: %s", cabin_id)
         else:
             # Single-cabin mode (backward compatible)
+            # Handle distance messages
+            if is_distance or "distance" in msg.topic:
+                self._update_distance(from_mm, to_mm, ts)
             # IR1 (entry sensor): detects when vehicle starts entering the cabin
-            if msg.topic == self.topic_entry or sensor == "ir1":
+            elif msg.topic == self.topic_entry or sensor == "ir1":
                 self._update_state("entry", present, ts)
             # IR2 (full sensor): detects when vehicle is fully entered into the cabin
             elif msg.topic == self.topic_full or sensor == "ir2":
@@ -493,6 +536,7 @@ class PresenceService:
                     "entry": {"present": False, "ts": None},
                     "full": {"present": False, "ts": None},
                     "previous": (False, False),
+                    "distance": {"from_mm": None, "to_mm": None, "ts": None},
                 }
             
             self._state[cabin_id][key] = {"present": present, "ts": ts}
@@ -501,6 +545,39 @@ class PresenceService:
             full_present = bool(self._state[cabin_id]["full"]["present"])
             self._state[cabin_id]["previous"] = (entry_present, full_present)
         self.logger.debug("Presence update cabin=%s %s present=%s ts=%s", cabin_id, key, present, ts)
+        # Notify all subscribers of state change
+        self._notify_subscribers()
+    
+    def _update_distance(self, from_mm: Optional[int], to_mm: Optional[int], ts: float) -> None:
+        """Update distance for single-cabin mode."""
+        with self._lock:
+            if "distance" not in self._state:
+                self._state["distance"] = {"from_mm": None, "to_mm": None, "ts": None}
+            self._state["distance"] = {
+                "from_mm": from_mm,
+                "to_mm": to_mm,
+                "ts": ts,
+            }
+        self.logger.debug("Distance update from_mm=%s to_mm=%s ts=%s", from_mm, to_mm, ts)
+        # Notify all subscribers of state change
+        self._notify_subscribers()
+    
+    def _update_distance_multi(self, cabin_id: str, from_mm: Optional[int], to_mm: Optional[int], ts: float) -> None:
+        """Update distance for multi-cabin mode."""
+        with self._lock:
+            if cabin_id not in self._state:
+                self._state[cabin_id] = {
+                    "entry": {"present": False, "ts": None},
+                    "full": {"present": False, "ts": None},
+                    "previous": (False, False),
+                    "distance": {"from_mm": None, "to_mm": None, "ts": None},
+                }
+            self._state[cabin_id]["distance"] = {
+                "from_mm": from_mm,
+                "to_mm": to_mm,
+                "ts": ts,
+            }
+        self.logger.debug("Distance update cabin=%s from_mm=%s to_mm=%s ts=%s", cabin_id, from_mm, to_mm, ts)
         # Notify all subscribers of state change
         self._notify_subscribers()
     
