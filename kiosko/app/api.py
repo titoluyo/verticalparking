@@ -77,21 +77,21 @@ def presence_stream():
 
 @bp.route("/sensors/cabins", methods=["GET"])
 def check_cabin_sensors():
-    """Check sensor status for multiple cabins (cabin-01 to cabin-07)."""
-    # Get cabin range from query params or default to cabin-01 to cabin-07
-    start_cabin = request.args.get("start", "cabin-01")
-    end_cabin = request.args.get("end", "cabin-07")
+    """Check sensor status for multiple cabins (cabina-01 to cabina-07)."""
+    # Get cabin range from query params or default to cabina-01 to cabina-07
+    start_cabin = request.args.get("start", "cabina-01")
+    end_cabin = request.args.get("end", "cabina-07")
     
     # Parse cabin numbers
     try:
-        if start_cabin.startswith("cabin-") and end_cabin.startswith("cabin-"):
-            start_num = int(start_cabin[6:])
-            end_num = int(end_cabin[6:])
-            cabins = [f"cabin-{i:02d}" for i in range(start_num, end_num + 1)]
+        if start_cabin.startswith("cabina-") and end_cabin.startswith("cabina-"):
+            start_num = int(start_cabin[7:])
+            end_num = int(end_cabin[7:])
+            cabins = [f"cabina-{i:02d}" for i in range(start_num, end_num + 1)]
         else:
-            return jsonify({"error": "Invalid cabin format. Use cabin-01-cabin-07 format"}), 400
+            return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-07 format"}), 400
     except (ValueError, IndexError):
-        return jsonify({"error": "Invalid cabin format. Use cabin-01-cabin-07 format"}), 400
+        return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-07 format"}), 400
     
     # Get MQTT configuration from environment
     broker = os.getenv("KIOSKO_MQTT_HOST", os.getenv("MQTT_BROKER", "127.0.0.1"))
@@ -113,7 +113,7 @@ def check_cabin_sensors():
             connection_event.set()
             # Subscribe to all presence topics for the cabins
             for cabin in cabins:
-                # Cabin ID already includes "cabin-" prefix, use it directly
+                # Cabin ID already includes "cabina-" prefix, use it directly
                 device_id = cabin
                 topic_entry = f"{topic_base}/{site}/{device_id}/presence/entry"
                 topic_full = f"{topic_base}/{site}/{device_id}/presence/full"
@@ -131,15 +131,15 @@ def check_cabin_sensors():
             present = bool(payload.get("present", False))
             ts = payload.get("ts")
             
-            # Extract cabin from device name (e.g., "cabin-01" -> "cabin-01")
-            if device.startswith("cabin-"):
-                cabin = device  # Cabin ID already includes "cabin-" prefix
+            # Extract cabin from device name (e.g., "cabina-01" -> "cabina-01")
+            if device.startswith("cabina-"):
+                cabin = device  # Cabin ID already includes "cabina-" prefix
             else:
                 # Try to extract from topic
                 parts = msg.topic.split("/")
                 if len(parts) >= 3:
                     device_part = parts[2]
-                    if device_part.startswith("cabin-"):
+                    if device_part.startswith("cabina-"):
                         cabin = device_part
                     else:
                         return

@@ -52,7 +52,7 @@ class PresenceService:
         self.password = password
         self.topic_entry = topic_entry
         self.topic_full = topic_full
-        self.cabins = cabins  # List of cabin IDs (e.g., ["cabin-01", "cabin-02", ...])
+        self.cabins = cabins  # List of cabin IDs (e.g., ["cabina-01", "cabina-02", ...])
         self.topic_base = topic_base
         self.site = site
         self.client_id = client_id or f"kiosko-presence-{int(time.time())}"
@@ -103,7 +103,7 @@ class PresenceService:
         site = _env("KIOSKO_SITE_ID", _env("SITE_ID", "garage-01"))
         
         device = _env("KIOSKO_DEVICE_ID", _env("DEVICE_ID"))
-        cabins_str = _env("KIOSKO_CABINS")  # e.g., "cabin-01-cabin-07" or "cabin-01,cabin-02,cabin-03"
+        cabins_str = _env("KIOSKO_CABINS")  # e.g., "cabina-01-cabina-07" or "cabina-01,cabina-02,cabina-03"
         
         # Single-cabin mode: Use if DEVICE_ID is explicitly set and KIOSKO_CABINS is not set
         if device and not cabins_str:
@@ -120,42 +120,42 @@ class PresenceService:
                 logger=logger,
             )
         
-        # Multi-cabin mode: Parse cabins or default to cabin-01 to cabin-07
+        # Multi-cabin mode: Parse cabins or default to cabina-01 to cabina-07
         cabins = None
         if cabins_str:
             # Parse cabin range or list
             if "-" in cabins_str:
-                # Try to parse as range format: "cabin-01-cabin-07" or "cabin-01-07"
+                # Try to parse as range format: "cabina-01-cabina-07" or "cabina-01-07"
                 try:
-                    # Check if it's "cabin-XX-cabin-YY" format
-                    if cabins_str.startswith("cabin-") and cabins_str.count("cabin-") == 2:
-                        # Format: "cabin-01-cabin-07"
-                        parts = cabins_str.split("cabin-")
+                    # Check if it's "cabina-XX-cabina-YY" format
+                    if cabins_str.startswith("cabina-") and cabins_str.count("cabina-") == 2:
+                        # Format: "cabina-01-cabina-07"
+                        parts = cabins_str.split("cabina-")
                         start_num = int(parts[1].split("-")[0])
                         end_num = int(parts[2])
-                        cabins = [f"cabin-{i:02d}" for i in range(start_num, end_num + 1)]
-                    elif cabins_str.startswith("cabin-"):
-                        # Format: "cabin-01-07"
+                        cabins = [f"cabina-{i:02d}" for i in range(start_num, end_num + 1)]
+                    elif cabins_str.startswith("cabina-"):
+                        # Format: "cabina-01-07"
                         parts = cabins_str.split("-")
                         if len(parts) == 3:
                             start_num = int(parts[1])
                             end_num = int(parts[2])
-                            cabins = [f"cabin-{i:02d}" for i in range(start_num, end_num + 1)]
+                            cabins = [f"cabina-{i:02d}" for i in range(start_num, end_num + 1)]
                         else:
                             raise ValueError("Invalid range format")
                     else:
                         raise ValueError("Invalid range format")
                 except (ValueError, IndexError):
                     if logger:
-                        logger.warning("Invalid cabin range format: %s, defaulting to cabin-01-cabin-07", cabins_str)
+                        logger.warning("Invalid cabin range format: %s, defaulting to cabina-01-cabina-07", cabins_str)
                     cabins = None
             else:
-                # Comma-separated list: "cabin-01,cabin-02,cabin-03"
+                # Comma-separated list: "cabina-01,cabina-02,cabina-03"
                 cabins = [c.strip() for c in cabins_str.split(",") if c.strip()]
         
-        # Default to cabin-01 to cabin-07 if no cabins specified
+        # Default to cabina-01 to cabina-07 if no cabins specified
         if not cabins:
-            cabins = [f"cabin-{i:02d}" for i in range(1, 8)]  # cabin-01 to cabin-07
+            cabins = [f"cabina-{i:02d}" for i in range(1, 8)]  # cabina-01 to cabina-07
         
         # Multi-cabin mode
         return cls(
@@ -399,7 +399,7 @@ class PresenceService:
             if self._multi_cabin_mode:
                 # Subscribe to all cabin topics
                 for cabin in self.cabins:
-                    # Cabin ID already includes "cabin-" prefix, use it directly
+                    # Cabin ID already includes "cabina-" prefix, use it directly
                     device_id = cabin
                     topic_entry = f"{self.topic_base}/{self.site}/{device_id}/presence/entry"
                     topic_full = f"{self.topic_base}/{self.site}/{device_id}/presence/full"
@@ -442,14 +442,14 @@ class PresenceService:
         if self._multi_cabin_mode:
             # Extract cabin ID from device name or topic
             cabin_id = None
-            if device.startswith("cabin-"):
-                cabin_id = device  # Cabin ID already includes "cabin-" prefix
+            if device.startswith("cabina-"):
+                cabin_id = device  # Cabin ID already includes "cabina-" prefix
             else:
                 # Try to extract from topic
                 parts = msg.topic.split("/")
                 if len(parts) >= 3:
                     device_part = parts[2]
-                    if device_part.startswith("cabin-"):
+                    if device_part.startswith("cabina-"):
                         cabin_id = device_part
             
             if cabin_id and cabin_id in self.cabins:
