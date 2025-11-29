@@ -63,6 +63,12 @@ class PresenceService:
         # Single-cabin mode: {"entry": {...}, "full": {...}}
         self._state: Dict[str, Any] = {}
         self._multi_cabin_mode = cabins is not None and len(cabins) > 0
+        # Active cabin for vehicle entrance monitoring (only one active at a time)
+        self._active_cabin: Optional[str] = None
+        if self._multi_cabin_mode and cabins:
+            # Default to first cabin
+            self._active_cabin = cabins[0]
+            self.logger.info("Active cabin initialized to: %s", self._active_cabin)
         
         if self._multi_cabin_mode:
             # Initialize state for each cabin
@@ -180,10 +186,11 @@ class PresenceService:
             return
         if self._multi_cabin_mode:
             self.logger.info(
-                "Starting presence watcher (multi-cabin) broker=%s | cabins=%s | site=%s",
+                "Starting presence watcher (multi-cabin) broker=%s | cabins=%s | site=%s | active_cabin=%s",
                 self.broker,
                 ",".join(self.cabins),
                 self.site,
+                self._active_cabin,
             )
         else:
             self.logger.info(
@@ -216,12 +223,47 @@ class PresenceService:
             except ValueError:
                 pass  # Already removed
 
+    def get_active_cabin(self) -> Optional[str]:
+        """Get the current active cabin ID."""
+        with self._lock:
+            return self._active_cabin
+    
+    def set_active_cabin(self, cabin_id: str) -> bool:
+        """Set the active cabin for vehicle entrance monitoring.
+        
+        Args:
+            cabin_id: The cabin ID to set as active (e.g., "cabina-01")
+            
+        Returns:
+            True if successful, False if cabin doesn't exist
+        """
+        with self._lock:
+            if not self._multi_cabin_mode:
+                self.logger.warning("Cannot set active cabin in single-cabin mode")
+                return False
+            
+            if cabin_id not in self.cabins:
+                self.logger.warning("Attempted to set invalid active cabin: %s (available: %s)", 
+                                  cabin_id, ", ".join(self.cabins))
+                return False
+            
+            if self._active_cabin != cabin_id:
+                old_cabin = self._active_cabin
+                self._active_cabin = cabin_id
+                self.logger.info("Active cabin changed: %s -> %s", old_cabin, cabin_id)
+                # Notify subscribers of the change
+                self._notify_subscribers()
+            else:
+                self.logger.info("Active cabin already set to %s (no change)", cabin_id)
+            
+            return True
+
     def snapshot(self, cabin_id: Optional[str] = None) -> Dict[str, Any]:
         """Get snapshot of presence state.
         
         Args:
             cabin_id: If provided and in multi-cabin mode, returns state for that cabin only.
-                     If None in multi-cabin mode, returns state for all cabins.
+                     If None in multi-cabin mode, returns state for active cabin (or all cabins if active not set).
                      In single-cabin mode, this parameter is ignored.
         """
         with self._lock:
@@ -230,85 +272,57 @@ class PresenceService:
                     # Return state for specific cabin
                     if cabin_id not in self._state:
                         return {"error": f"Cabin {cabin_id} not found"}
-                    cabin_state = self._state[cabin_id]
-                    entry_present = bool(cabin_state["entry"]["present"])
-                    full_present = bool(cabin_state["full"]["present"])
-                    prev_entry, prev_full = cabin_state["previous"]
-                    
-                    state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
-                    updated_at = None
-                    for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
-                        if ts:
-                            updated_at = max(updated_at or ts, ts)
-                    
-                    distance = cabin_state.get("distance", {})
-                    return {
-                        "cabin": cabin_id,
-                        "entry": {
-                            "present": entry_present,
-                            "ts": _iso(cabin_state["entry"]["ts"]),
-                        },
-                        "full": {
-                            "present": full_present,
-                            "ts": _iso(cabin_state["full"]["ts"]),
-                        },
-                        "distance": {
-                            "from_mm": distance.get("from_mm"),
-                            "to_mm": distance.get("to_mm"),
-                            "ts": _iso(distance.get("ts")),
-                        },
-                        "occupied": full_present,
-                        "state": state_info["state"],
-                        "message": state_info["message"],
-                        "status": self._status,
-                        "status_detail": self._status_detail,
-                        "connected": self._connected,
-                        "updated_at": _iso(updated_at),
-                    }
+                    target_cabin = cabin_id
                 else:
-                    # Return state for all cabins
-                    cabins_data = {}
-                    overall_updated_at = None
-                    
-                    for cabin, cabin_state in self._state.items():
-                        entry_present = bool(cabin_state["entry"]["present"])
-                        full_present = bool(cabin_state["full"]["present"])
-                        prev_entry, prev_full = cabin_state["previous"]
-                        
-                        state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
-                        updated_at = None
-                        distance = cabin_state.get("distance", {})
-                        for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], distance.get("ts")):
-                            if ts:
-                                updated_at = max(updated_at or ts, ts)
-                                overall_updated_at = max(overall_updated_at or ts, ts) if overall_updated_at else ts
-                        
-                        cabins_data[cabin] = {
-                            "entry": {
-                                "present": entry_present,
-                                "ts": _iso(cabin_state["entry"]["ts"]),
-                            },
-                            "full": {
-                                "present": full_present,
-                                "ts": _iso(cabin_state["full"]["ts"]),
-                            },
-                            "distance": {
-                                "from_mm": distance.get("from_mm"),
-                                "to_mm": distance.get("to_mm"),
-                                "ts": _iso(distance.get("ts")),
-                            },
-                            "occupied": full_present,
-                            "state": state_info["state"],
-                            "message": state_info["message"],
-                        }
-                    
-                    return {
-                        "cabins": cabins_data,
-                        "status": self._status,
-                        "status_detail": self._status_detail,
-                        "connected": self._connected,
-                        "updated_at": _iso(overall_updated_at),
-                    }
+                    # Return state for active cabin (default behavior for vehicle entrance monitoring)
+                    if self._active_cabin:
+                        target_cabin = self._active_cabin
+                        self.logger.debug("Using active cabin for snapshot: %s", target_cabin)
+                    elif self.cabins:
+                        # Fallback to first cabin if active not set
+                        target_cabin = self.cabins[0]
+                        self.logger.warning("No active cabin set, defaulting to %s", target_cabin)
+                    else:
+                        return {"error": "No cabins available"}
+                
+                # Return state for target cabin (formatted as single-cabin for frontend compatibility)
+                if target_cabin not in self._state:
+                    return {"error": f"Cabin {target_cabin} not found"}
+                
+                cabin_state = self._state[target_cabin]
+                entry_present = bool(cabin_state["entry"]["present"])
+                full_present = bool(cabin_state["full"]["present"])
+                prev_entry, prev_full = cabin_state["previous"]
+                
+                state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
+                updated_at = None
+                for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
+                    if ts:
+                        updated_at = max(updated_at or ts, ts)
+                
+                distance = cabin_state.get("distance", {})
+                return {
+                    "entry": {
+                        "present": entry_present,
+                        "ts": _iso(cabin_state["entry"]["ts"]),
+                    },
+                    "full": {
+                        "present": full_present,
+                        "ts": _iso(cabin_state["full"]["ts"]),
+                    },
+                    "distance": {
+                        "from_mm": distance.get("from_mm"),
+                        "to_mm": distance.get("to_mm"),
+                        "ts": _iso(distance.get("ts")),
+                    },
+                    "occupied": full_present,
+                    "state": state_info["state"],
+                    "message": state_info["message"],
+                    "status": self._status,
+                    "status_detail": self._status_detail,
+                    "connected": self._connected,
+                    "updated_at": _iso(updated_at),
+                }
             else:
                 # Single-cabin mode (backward compatible)
                 entry_present = bool(self._state["entry"]["present"])

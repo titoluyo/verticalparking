@@ -14,10 +14,45 @@ bp = Blueprint("api", __name__, url_prefix="/api")
 
 @bp.route("/presence", methods=["GET"])
 def presence_status():
+    """Get presence status for the active cabin (or all cabins if specified)."""
     service = current_app.config.get("PRESENCE_SERVICE")
     if not service:
         return jsonify({"error": "presence service unavailable"}), 503
+    # In multi-cabin mode, snapshot() automatically returns active cabin's data
     return jsonify(service.snapshot())
+
+
+@bp.route("/active-cabin", methods=["GET"])
+def get_active_cabin():
+    """Get the current active cabin ID."""
+    service = current_app.config.get("PRESENCE_SERVICE")
+    if not service:
+        return jsonify({"error": "presence service unavailable"}), 503
+    
+    active_cabin = service.get_active_cabin()
+    return jsonify({"active_cabin": active_cabin})
+
+
+@bp.route("/active-cabin", methods=["POST"])
+def set_active_cabin():
+    """Set the active cabin for vehicle entrance monitoring."""
+    service = current_app.config.get("PRESENCE_SERVICE")
+    if not service:
+        return jsonify({"error": "presence service unavailable"}), 503
+    
+    data = request.get_json()
+    if not data or "cabin_id" not in data:
+        return jsonify({"error": "Missing cabin_id in request body"}), 400
+    
+    cabin_id = data.get("cabin_id")
+    if not isinstance(cabin_id, str):
+        return jsonify({"error": "cabin_id must be a string"}), 400
+    
+    success = service.set_active_cabin(cabin_id)
+    if success:
+        return jsonify({"active_cabin": cabin_id, "message": "Active cabin updated"}), 200
+    else:
+        return jsonify({"error": f"Invalid cabin_id: {cabin_id}"}), 400
 
 
 @bp.route("/presence/stream", methods=["GET"])
