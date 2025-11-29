@@ -2,6 +2,8 @@
 #include "driver/i2c.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 
 static const char *TAG = "vl53l0x";
@@ -312,11 +314,30 @@ int vl53l0x_read_range_mm(int i2c_port) {
         return VL53L0X_ERROR;
     }
     
+    // Handle suspicious 20mm glitch: VL53L0X sometimes returns 20mm as an error value
+    // If we get 20mm with a non-perfect status, it's likely a glitch
+    bool suspicious_short_glitch = (distance == 20 && status_low != 0x00);
+    
     if (distance > VL53L0X_MAX_STABLE_DISTANCE_MM) {
         distance = VL53L0X_MAX_STABLE_DISTANCE_MM;
     }
 
-    g_last_valid_distance_mm = distance;
+    if (suspicious_short_glitch) {
+        if (g_last_valid_distance_mm >= 0) {
+            // Keep last valid reading instead of the glitch
+            ESP_LOGD(TAG, "VL53L0X ignoring suspicious 20mm reading (status=0x%02X), keeping last %d mm",
+                     range_status, g_last_valid_distance_mm);
+            distance = g_last_valid_distance_mm;
+        } else {
+            // No previous valid reading, reject this one
+            ESP_LOGW(TAG, "VL53L0X rejecting initial suspicious 20mm reading (status=0x%02X)", range_status);
+            return VL53L0X_ERROR;
+        }
+    } else {
+        // Valid reading, update last valid
+        g_last_valid_distance_mm = distance;
+    }
+
     ESP_LOGD(TAG, "VL53L0X read: %d mm (status=0x%02X, int=0x%02X)", distance, range_status, int_status);
     return (int)distance;
 }
