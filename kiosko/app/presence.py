@@ -237,6 +237,7 @@ class PresenceService:
         Returns:
             True if successful, False if cabin doesn't exist
         """
+        should_notify = False
         with self._lock:
             if not self._multi_cabin_mode:
                 self.logger.warning("Cannot set active cabin in single-cabin mode")
@@ -251,12 +252,15 @@ class PresenceService:
                 old_cabin = self._active_cabin
                 self._active_cabin = cabin_id
                 self.logger.info("Active cabin changed: %s -> %s", old_cabin, cabin_id)
-                # Notify subscribers of the change
-                self._notify_subscribers()
+                should_notify = True
             else:
                 self.logger.info("Active cabin already set to %s (no change)", cabin_id)
-            
-            return True
+        
+        # Notify subscribers AFTER releasing the lock to avoid deadlock
+        if should_notify:
+            self._notify_subscribers()
+        
+        return True
 
     def snapshot(self, cabin_id: Optional[str] = None) -> Dict[str, Any]:
         """Get snapshot of presence state.
