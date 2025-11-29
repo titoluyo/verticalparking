@@ -77,21 +77,21 @@ def presence_stream():
 
 @bp.route("/sensors/cabins", methods=["GET"])
 def check_cabin_sensors():
-    """Check sensor status for multiple cabins (A01-A07)."""
-    # Get cabin range from query params or default to A01-A07
-    start_cabin = request.args.get("start", "A01")
-    end_cabin = request.args.get("end", "A07")
+    """Check sensor status for multiple cabins (cabin-01 to cabin-07)."""
+    # Get cabin range from query params or default to cabin-01 to cabin-07
+    start_cabin = request.args.get("start", "cabin-01")
+    end_cabin = request.args.get("end", "cabin-07")
     
     # Parse cabin numbers
     try:
-        start_num = int(start_cabin[1:])
-        end_num = int(end_cabin[1:])
-        cabin_prefix = start_cabin[0]  # Should be 'A'
+        if start_cabin.startswith("cabin-") and end_cabin.startswith("cabin-"):
+            start_num = int(start_cabin[6:])
+            end_num = int(end_cabin[6:])
+            cabins = [f"cabin-{i:02d}" for i in range(start_num, end_num + 1)]
+        else:
+            return jsonify({"error": "Invalid cabin format. Use cabin-01-cabin-07 format"}), 400
     except (ValueError, IndexError):
-        return jsonify({"error": "Invalid cabin format. Use A01-A07 format"}), 400
-    
-    # Generate cabin list
-    cabins = [f"{cabin_prefix}{i:02d}" for i in range(start_num, end_num + 1)]
+        return jsonify({"error": "Invalid cabin format. Use cabin-01-cabin-07 format"}), 400
     
     # Get MQTT configuration from environment
     broker = os.getenv("KIOSKO_MQTT_HOST", os.getenv("MQTT_BROKER", "127.0.0.1"))
@@ -113,7 +113,8 @@ def check_cabin_sensors():
             connection_event.set()
             # Subscribe to all presence topics for the cabins
             for cabin in cabins:
-                device_id = f"cabin-{cabin}"
+                # Cabin ID already includes "cabin-" prefix, use it directly
+                device_id = cabin
                 topic_entry = f"{topic_base}/{site}/{device_id}/presence/entry"
                 topic_full = f"{topic_base}/{site}/{device_id}/presence/full"
                 client.subscribe(topic_entry, qos=1)
@@ -130,14 +131,18 @@ def check_cabin_sensors():
             present = bool(payload.get("present", False))
             ts = payload.get("ts")
             
-            # Extract cabin from device name (e.g., "cabin-A01" -> "A01")
+            # Extract cabin from device name (e.g., "cabin-01" -> "cabin-01")
             if device.startswith("cabin-"):
-                cabin = device[6:]  # Remove "cabin-" prefix
+                cabin = device  # Cabin ID already includes "cabin-" prefix
             else:
                 # Try to extract from topic
                 parts = msg.topic.split("/")
                 if len(parts) >= 3:
-                    cabin = parts[2].replace("cabin-", "")
+                    device_part = parts[2]
+                    if device_part.startswith("cabin-"):
+                        cabin = device_part
+                    else:
+                        return
                 else:
                     return
             
