@@ -32,3 +32,4 @@ Write-Host ""
 Write-Host "Verifying junctions:"
 Get-ChildItem $componentsPath | Select-Object Name, LinkType, Target | Format-Table
 
+
