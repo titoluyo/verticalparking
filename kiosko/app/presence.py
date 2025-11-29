@@ -492,6 +492,8 @@ class PresenceService:
             if cabin_id and cabin_id in self.cabins:
                 # Handle distance messages
                 if is_distance or "distance" in msg.topic:
+                    self.logger.info("Distance event received cabin=%s from_mm=%s to_mm=%s ts=%s topic=%s", 
+                                   cabin_id, from_mm, to_mm, ts, msg.topic)
                     self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
                 # Determine sensor type for presence messages
                 elif sensor == "ir1" or "entry" in msg.topic:
@@ -504,6 +506,8 @@ class PresenceService:
             # Single-cabin mode (backward compatible)
             # Handle distance messages
             if is_distance or "distance" in msg.topic:
+                self.logger.info("Distance event received from_mm=%s to_mm=%s ts=%s topic=%s", 
+                               from_mm, to_mm, ts, msg.topic)
                 self._update_distance(from_mm, to_mm, ts)
             # IR1 (entry sensor): detects when vehicle starts entering the cabin
             elif msg.topic == self.topic_entry or sensor == "ir1":
