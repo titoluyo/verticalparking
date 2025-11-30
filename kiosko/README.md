@@ -56,6 +56,8 @@ kiosko/
 
 ### Network Configuration (Raspberry Pi)
 
+#### 1. Set Hostname for mDNS (control.local)
+
 To configure your Raspberry Pi to be accessible as `control.local` on your network:
 
 1. **Run the hostname setup script** (requires sudo):
@@ -82,6 +84,26 @@ To configure your Raspberry Pi to be accessible as `control.local` on your netwo
    - Via IP address: `http://<raspberry-pi-ip>:5000`
 
 **Note:** The `.local` hostname uses mDNS (multicast DNS) and works automatically on most modern operating systems (Windows 10+, macOS, Linux). It may take a few seconds after boot for the hostname to be available on the network.
+
+#### 2. Configure Static IP Address (DD-WRT Router)
+
+To assign a static IP address to your Raspberry Pi based on its MAC address:
+
+1. **Get your Raspberry Pi's MAC address**:
+   ```bash
+   bash kiosko/get_mac_address.sh
+   ```
+
+2. **Configure static DHCP lease in DD-WRT**:
+   - See detailed instructions in [`DD-WRT_STATIC_IP_SETUP.md`](DD-WRT_STATIC_IP_SETUP.md)
+   - Typically: **Services** → **DHCP Server** → **Static Leases** → **Add**
+   - Enter MAC address and desired IP address (outside DHCP pool range)
+
+**Benefits:**
+- Raspberry Pi always gets the same IP address
+- Works with both `control.local` (mDNS) and static IP
+- Centralized management in router
+- Prevents IP conflicts
 
 ### Setup
 
