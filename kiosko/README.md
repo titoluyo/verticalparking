@@ -54,6 +54,35 @@ kiosko/
 - MQTT broker (for sensor data)
 - Network access to MQTT broker
 
+### Network Configuration (Raspberry Pi)
+
+To configure your Raspberry Pi to be accessible as `control.local` on your network:
+
+1. **Run the hostname setup script** (requires sudo):
+   ```bash
+   sudo bash kiosko/setup_hostname.sh
+   ```
+
+   This script will:
+   - Set the hostname to `control`
+   - Install and configure Avahi (mDNS daemon) if needed
+   - Enable `.local` hostname resolution
+
+2. **Verify the setup**:
+   ```bash
+   # On the Raspberry Pi
+   hostname  # Should show "control"
+   
+   # From another device on the network
+   ping control.local
+   ```
+
+3. **Access your Raspberry Pi**:
+   - Via hostname: `http://control.local:5000`
+   - Via IP address: `http://<raspberry-pi-ip>:5000`
+
+**Note:** The `.local` hostname uses mDNS (multicast DNS) and works automatically on most modern operating systems (Windows 10+, macOS, Linux). It may take a few seconds after boot for the hostname to be available on the network.
+
 ### Setup
 
 1. **Create virtual environment:**
