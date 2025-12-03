@@ -354,9 +354,11 @@ The `printer.py` module provides thermal printer support for printing parking ti
 - Graceful fallback to simulation mode when printer unavailable
 - Thread-safe printing operations
 
-#### Printer Setup
+#### Printer Setup (Complete Guide)
 
-1. **Install system dependencies (Raspberry Pi/Linux):**
+**For Cashino KP-300 with ICS Advent Parallel Adapter (USB ID: 0fe6:811e)**
+
+1. **Install system dependencies:**
    ```bash
    sudo apt-get update
    sudo apt-get install -y libusb-1.0-0-dev
@@ -364,47 +366,87 @@ The `printer.py` module provides thermal printer support for printing parking ti
 
 2. **Install Python dependencies:**
    ```bash
-   pip install python-escpos pyusb
-   ```
-   
-   Or install from requirements.txt:
-   ```bash
+   cd ~/verticalparking/kiosko
+   source .venv/bin/activate
    pip install -r requirements.txt
    ```
-
-2. **Connect printer:**
-   - USB: Connect via USB cable to Raspberry Pi
-   - Serial: Connect via RS232 cable and configure `KIOSKO_PRINTER_SERIAL`
-
-3. **Find USB device IDs (if needed):**
-   ```bash
-   # List USB devices
-   lsusb
    
-   # Look for your printer, note vendor and product IDs
-   # Example output: Bus 001 Device 005: ID 04f9:2016 Brother Industries, Ltd
-   # Vendor ID: 0x04f9, Product ID: 0x2016
+   This installs `python-escpos` and `pyusb` automatically.
+
+3. **Connect printer:**
+   - Connect Cashino KP-300 via USB cable to Raspberry Pi
+   - Power on the printer and load 80mm thermal paper
+   - Verify connection: `lsusb` should show "ICS Advent Parallel Adapter" (ID 0fe6:811e)
+
+4. **Set up USB permissions (REQUIRED):**
+   ```bash
+   # Create udev rule for the printer
+   sudo nano /etc/udev/rules.d/99-escpos-printer.rules
+   ```
+   
+   Add this line to the file:
+   ```
+   SUBSYSTEM=="usb", ATTRS{idVendor}=="0fe6", ATTRS{idProduct}=="811e", MODE="0666", GROUP="dialout"
+   ```
+   
+   Save and exit (Ctrl+X, then Y, then Enter).
+   
+   Reload udev rules:
+   ```bash
+   sudo udevadm control --reload-rules
+   sudo udevadm trigger
    ```
 
-4. **Configure printer (optional):**
+5. **Add user to dialout group:**
    ```bash
-   # Set USB vendor/product IDs if auto-detection fails
-   export KIOSKO_PRINTER_VENDOR_ID=0x04f9
-   export KIOSKO_PRINTER_PRODUCT_ID=0x2016
+   sudo usermod -a -G dialout $USER
+   ```
    
-   # Or use serial connection
-   export KIOSKO_PRINTER_SERIAL=/dev/ttyUSB0
-   export KIOSKO_PRINTER_BAUDRATE=9600
+   **Important:** Log out and log back in (or reboot) for group membership to take effect.
    
-   # Disable printer if needed
-   export KIOSKO_PRINTER_ENABLED=false
+   To test immediately without logging out:
+   ```bash
+   newgrp dialout
    ```
 
-5. **Test printer:**
+6. **Test printer:**
    ```bash
-   # Test via API
+   # Test directly with Python
+   cd ~/verticalparking/kiosko
+   source .venv/bin/activate
+   python3 -c "from escpos.printer import Usb; p = Usb(0x0fe6, 0x811e); p.text('Test\n'); p.cut()"
+   ```
+   
+   Or test via API (after starting Flask app):
+   ```bash
    curl -X POST http://localhost:5000/api/printer/test
    ```
+
+**For other printers:**
+
+- **Find USB device IDs:**
+  ```bash
+  lsusb
+  # Look for your printer, note vendor and product IDs
+  # Example: Bus 001 Device 005: ID 04f9:2016 Brother Industries, Ltd
+  # Vendor ID: 0x04f9, Product ID: 0x2016
+  ```
+
+- **Configure printer (optional):**
+  ```bash
+  # Set USB vendor/product IDs if auto-detection fails
+  export KIOSKO_PRINTER_VENDOR_ID=0x04f9
+  export KIOSKO_PRINTER_PRODUCT_ID=0x2016
+  
+  # Or use serial connection
+  export KIOSKO_PRINTER_SERIAL=/dev/ttyUSB0
+  export KIOSKO_PRINTER_BAUDRATE=9600
+  
+  # Disable printer if needed
+  export KIOSKO_PRINTER_ENABLED=false
+  ```
+
+- **Update udev rule** with your printer's vendor/product IDs if different from Cashino KP-300.
 
 #### Printer Troubleshooting
 
@@ -419,6 +461,13 @@ The `printer.py` module provides thermal printer support for printing parking ti
   - Install system library: `sudo apt-get install libusb-1.0-0-dev`
   - Install Python library: `pip install pyusb`
   - Restart the application after installing dependencies
+
+- **"Access denied (insufficient permissions)" error:**
+  - Create udev rule: `sudo nano /etc/udev/rules.d/99-escpos-printer.rules`
+  - Add: `SUBSYSTEM=="usb", ATTRS{idVendor}=="0fe6", ATTRS{idProduct}=="811e", MODE="0666", GROUP="dialout"`
+  - Reload: `sudo udevadm control --reload-rules && sudo udevadm trigger`
+  - Add user to dialout group: `sudo usermod -a -G dialout $USER`
+  - **Log out and log back in** for group membership to take effect
 
 - **Permission errors (Linux):**
   ```bash
@@ -487,6 +536,7 @@ Logs are written to:
 - **flasgger** (>=0.9.7.1): Swagger/OpenAPI documentation
 - **paho-mqtt** (>=1.6): MQTT client library
 - **python-escpos** (>=3.0.0): Thermal printer support (ESC/POS protocol)
+- **pyusb** (>=1.2.0): USB device access for thermal printers (required for USB connection)
 
 ## Related Components
 
