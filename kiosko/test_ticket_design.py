@@ -7,6 +7,8 @@ from escpos.printer import Usb
 import traceback
 import time
 import uuid
+import os
+from PIL import Image
 
 p = None
 try:
@@ -39,6 +41,38 @@ try:
     
     # Corporate with Boxes (Modified)
     p.text("\n\n")
+    
+    # Print logo if available
+    logo_path = "vertical_parking_logo.png"
+    if os.path.exists(logo_path):
+        try:
+            # Load and process logo
+            original_img = Image.open(logo_path)
+            MAX_WIDTH = 384  # 80mm thermal printer max width
+            
+            # Resize maintaining aspect ratio
+            if original_img.size[0] > MAX_WIDTH:
+                ratio = MAX_WIDTH / original_img.size[0]
+                new_width = MAX_WIDTH
+                new_height = int(original_img.size[1] * ratio)
+            else:
+                new_width = original_img.size[0]
+                new_height = original_img.size[1]
+            
+            resized_img = original_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Convert to grayscale for thermal printing
+            if resized_img.mode != 'L':
+                resized_img = resized_img.convert('L')
+            
+            # Print logo centered
+            p.image(resized_img, center=True, high_density_vertical=True, high_density_horizontal=True)
+            p.text("\n")
+            print(f"Logo printed: {new_width}x{new_height} pixels")
+        except Exception as e:
+            print(f"Warning: Could not print logo: {e}")
+            # Continue without logo
+    
     p.set(align="center", bold=True, double_width=True)
     p.text("VERTICAL PARKING\n")
     p.set(align="center", bold=True, double_width=False)
