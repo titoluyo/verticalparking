@@ -10,6 +10,7 @@ from .routes import bp as routes_bp
 from .api import bp as api_bp
 from .presence import presence_service_from_env
 from .printer import PrinterService
+from .camera import CameraService
 
 
 def create_app() -> Flask:
@@ -56,6 +57,18 @@ def create_app() -> Flask:
         # Keep app running even if printer is unavailable; surface via API later.
         app.logger.warning("Printer service not initialized: %s", exc)
         app.config["PRINTER_SERVICE"] = None
+    
+    # Camera service (QR code scanning)
+    try:
+        app.logger.info("Initializing camera service...")
+        camera_service = CameraService.from_env(app.logger)
+        app.config["CAMERA_SERVICE"] = camera_service
+        status = camera_service.get_status()
+        app.logger.info("Camera service initialized: available=%s, backend=%s", status["available"], status["backend"])
+    except Exception as exc:
+        # Keep app running even if camera is unavailable; surface via API later.
+        app.logger.warning("Camera service not initialized: %s", exc)
+        app.config["CAMERA_SERVICE"] = None
 
     # Blueprints
     app.register_blueprint(routes_bp)

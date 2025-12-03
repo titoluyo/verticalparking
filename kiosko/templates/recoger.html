@@ -1,10 +1,310 @@
 {% extends 'base.html' %}
 {% block title %}Recoger vehículo - Kiosko{% endblock %}
 {% block content %}
-<section class="placeholder">
+<section class="recoger-section">
   <h2>Recoger vehículo</h2>
-  <p>Esta vista mostrará el flujo para entregar un vehículo a un cliente.</p>
-  <p>Cuando el flujo esté listo, se integrará aquí.</p>
-  <a class="btn" href="{{ url_for('routes.index') }}">Volver</a>
+  <p class="instructions">Escanea el código QR de tu ticket para retirar tu vehículo</p>
+  
+  <div class="camera-container">
+    <div id="camera-status" class="camera-status">
+      <span id="status-text">Iniciando cámara...</span>
+    </div>
+    <img id="camera-stream" src="{{ url_for('api.camera_stream') }}" alt="Camera stream" style="display: none;" />
+    <div id="camera-error" class="error-message" style="display: none;">
+      <p>Error: No se pudo acceder a la cámara</p>
+      <p class="error-detail"></p>
+    </div>
+  </div>
+  
+  <div id="qr-detected" class="qr-detected" style="display: none;">
+    <div class="qr-info">
+      <h3>✓ Código QR detectado</h3>
+      <p id="qr-token-display"></p>
+      <div id="ticket-info" style="display: none;">
+        <p><strong>Cabina:</strong> <span id="ticket-cabin"></span></p>
+        <p><strong>Fecha de entrada:</strong> <span id="ticket-entry-time"></span></p>
+        <p id="ticket-status"></p>
+      </div>
+      <div id="ticket-error" class="error-message" style="display: none;">
+        <p id="ticket-error-msg"></p>
+      </div>
+      <div class="qr-actions">
+        <button id="btn-process" class="btn btn-primary" style="display: none;">Procesar retiro</button>
+        <button id="btn-cancel" class="btn btn-secondary">Cancelar</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="actions">
+    <a class="btn" href="{{ url_for('routes.index') }}">Volver</a>
+  </div>
 </section>
+
+<script>
+(function() {
+  const cameraStream = document.getElementById('camera-stream');
+  const cameraStatus = document.getElementById('camera-status');
+  const statusText = document.getElementById('status-text');
+  const cameraError = document.getElementById('camera-error');
+  const qrDetected = document.getElementById('qr-detected');
+  const qrTokenDisplay = document.getElementById('qr-token-display');
+  const ticketInfo = document.getElementById('ticket-info');
+  const ticketError = document.getElementById('ticket-error');
+  const ticketErrorMsg = document.getElementById('ticket-error-msg');
+  const ticketCabin = document.getElementById('ticket-cabin');
+  const ticketEntryTime = document.getElementById('ticket-entry-time');
+  const ticketStatus = document.getElementById('ticket-status');
+  const btnProcess = document.getElementById('btn-process');
+  const btnCancel = document.getElementById('btn-cancel');
+  
+  let scanInterval = null;
+  let lastScannedToken = null;
+  let currentTicket = null;
+  
+  // Check camera status on load
+  function checkCameraStatus() {
+    fetch('/api/camera/status')
+      .then(response => response.json())
+      .then(data => {
+        if (data.available) {
+          statusText.textContent = 'Cámara lista - Escanea tu ticket';
+          cameraStream.style.display = 'block';
+          cameraError.style.display = 'none';
+          startQRScanning();
+        } else {
+          statusText.textContent = 'Cámara no disponible';
+          cameraError.querySelector('.error-detail').textContent = data.error || 'Cámara no configurada';
+          cameraError.style.display = 'block';
+        }
+      })
+      .catch(error => {
+        console.error('Error checking camera status:', error);
+        statusText.textContent = 'Error al verificar cámara';
+        cameraError.querySelector('.error-detail').textContent = error.message;
+        cameraError.style.display = 'block';
+      });
+  }
+  
+  // Start QR code scanning by periodically capturing frames
+  function startQRScanning() {
+    // Use a canvas to capture frames from the video stream
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // Set canvas size to match video
+    cameraStream.onload = function() {
+      canvas.width = cameraStream.width || 640;
+      canvas.height = cameraStream.height || 480;
+    };
+    
+    // Scan every 500ms
+    scanInterval = setInterval(() => {
+      if (cameraStream.complete && cameraStream.naturalWidth > 0) {
+        // Draw current frame to canvas
+        ctx.drawImage(cameraStream, 0, 0, canvas.width, canvas.height);
+        
+        // Convert to blob and send to server for QR detection
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const formData = new FormData();
+            formData.append('frame', blob, 'frame.jpg');
+            
+            // Send frame to server for QR detection
+            // Note: We'll need to add a frame detection endpoint
+            // For now, we'll use a simpler approach: detect QR codes in the stream
+            // and send them via Server-Sent Events
+          }
+        }, 'image/jpeg', 0.8);
+      }
+    }, 500);
+  }
+  
+  // Alternative: Use jsQR library for client-side detection
+  // For now, let's use a simpler approach: detect QR codes from the video stream
+  // by periodically checking the stream image
+  
+  // Manual QR code input (fallback)
+  function showManualInput() {
+    const token = prompt('Ingresa el token del ticket (8 caracteres):');
+    if (token && token.length >= 8) {
+      processQRToken(token);
+    }
+  }
+  
+  // Process QR token
+  function processQRToken(token) {
+    // Handle "PARKING:uuid" format
+    if (token.startsWith('PARKING:')) {
+      token = token.substring(8);
+    }
+    
+    // Show loading state
+    qrDetected.style.display = 'block';
+    qrTokenDisplay.textContent = `Token: ${token.substring(0, 8).toUpperCase()}`;
+    ticketInfo.style.display = 'none';
+    ticketError.style.display = 'none';
+    btnProcess.style.display = 'none';
+    
+    // Validate token with server
+    fetch('/api/camera/scan', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token: token })
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.ticket) {
+        // Show ticket info
+        currentTicket = data.ticket;
+        ticketCabin.textContent = data.ticket.cabina_id;
+        ticketEntryTime.textContent = data.ticket.entry_timestamp || 'N/A';
+        
+        if (data.ticket.status === 'active') {
+          ticketStatus.innerHTML = '<span style="color: green;">✓ Ticket activo</span>';
+          btnProcess.style.display = 'inline-block';
+        } else if (data.ticket.status === 'completed') {
+          ticketStatus.innerHTML = '<span style="color: orange;">⚠ Ticket ya procesado</span>';
+        } else {
+          ticketStatus.innerHTML = '<span style="color: red;">✗ Ticket cancelado</span>';
+        }
+        
+        ticketInfo.style.display = 'block';
+      } else {
+        // Show error
+        ticketErrorMsg.textContent = data.error || 'Ticket no encontrado';
+        ticketError.style.display = 'block';
+      }
+    })
+    .catch(error => {
+      console.error('Error scanning QR:', error);
+      ticketErrorMsg.textContent = 'Error al validar ticket: ' + error.message;
+      ticketError.style.display = 'block';
+    });
+  }
+  
+  // Process vehicle retrieval
+  btnProcess.addEventListener('click', () => {
+    if (!currentTicket) return;
+    
+    // TODO: Implement vehicle retrieval logic
+    // For now, just show a message
+    alert(`Procesando retiro del vehículo en ${currentTicket.cabina_id}...\n\nEsta funcionalidad se implementará próximamente.`);
+  });
+  
+  // Cancel button
+  btnCancel.addEventListener('click', () => {
+    qrDetected.style.display = 'none';
+    currentTicket = null;
+    lastScannedToken = null;
+  });
+  
+  // Handle camera stream load
+  cameraStream.addEventListener('load', () => {
+    statusText.textContent = 'Cámara lista - Escanea tu ticket';
+  });
+  
+  cameraStream.addEventListener('error', () => {
+    statusText.textContent = 'Error al cargar video';
+    cameraError.style.display = 'block';
+  });
+  
+  // Initialize
+  checkCameraStatus();
+  
+  // For now, add a manual input button (temporary until we implement automatic detection)
+  const manualBtn = document.createElement('button');
+  manualBtn.className = 'btn btn-secondary';
+  manualBtn.textContent = 'Ingresar token manualmente';
+  manualBtn.style.marginTop = '10px';
+  manualBtn.addEventListener('click', showManualInput);
+  document.querySelector('.actions').appendChild(manualBtn);
+})();
+</script>
+
+<style>
+.recoger-section {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.instructions {
+  text-align: center;
+  font-size: 1.1em;
+  margin-bottom: 20px;
+  color: #666;
+}
+
+.camera-container {
+  position: relative;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  min-height: 400px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#camera-stream {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.camera-status {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.error-message {
+  background: #fee;
+  border: 1px solid #fcc;
+  color: #c33;
+  padding: 15px;
+  border-radius: 4px;
+  margin: 20px 0;
+}
+
+.error-detail {
+  font-size: 0.9em;
+  margin-top: 5px;
+  color: #999;
+}
+
+.qr-detected {
+  background: #f0f8ff;
+  border: 2px solid #4CAF50;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 20px 0;
+}
+
+.qr-info h3 {
+  color: #4CAF50;
+  margin-top: 0;
+}
+
+.qr-actions {
+  margin-top: 15px;
+}
+
+.qr-actions .btn {
+  margin-right: 10px;
+}
+
+.actions {
+  text-align: center;
+  margin-top: 20px;
+}
+</style>
 {% endblock %}

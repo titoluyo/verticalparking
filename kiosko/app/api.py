@@ -5,9 +5,15 @@ import queue
 import threading
 import time
 
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
-from .database import cleanup_tickets, reset_cabins, cleanup_all
+from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -420,6 +426,128 @@ def print_exit_ticket():
             "error": "Failed to print exit ticket",
             "status": status
         }), 503
+
+
+@bp.route("/camera/status", methods=["GET"])
+def camera_status():
+    """Get camera service status information."""
+    service = current_app.config.get("CAMERA_SERVICE")
+    if not service:
+        return jsonify({"error": "camera service unavailable"}), 503
+    
+    status = service.get_status()
+    return jsonify(status)
+
+
+@bp.route("/camera/stream", methods=["GET"])
+def camera_stream():
+    """MJPEG video stream from camera for QR code scanning."""
+    if not CV2_AVAILABLE:
+        return jsonify({"error": "opencv-python not available"}), 503
+    
+    service = current_app.config.get("CAMERA_SERVICE")
+    if not service:
+        return jsonify({"error": "camera service unavailable"}), 503
+    
+    # Ensure camera is started
+    if not service.start():
+        return jsonify({"error": "Failed to start camera"}), 503
+    
+    def generate():
+        """Generate MJPEG frames."""
+        try:
+            while True:
+                result = service.read_frame()
+                if result is None:
+                    # No frame available, send a placeholder or wait
+                    time.sleep(0.1)
+                    continue
+                
+                frame, success = result
+                if not success or frame is None:
+                    time.sleep(0.1)
+                    continue
+                
+                # Detect QR codes and draw overlay
+                qr_codes = service.detect_qr_codes(frame)
+                if qr_codes:
+                    # Draw green rectangle around QR code
+                    for qr in qr_codes:
+                        x, y, w, h = qr['rect']
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                        # Draw text
+                        cv2.putText(frame, "QR Code", (x, y - 10),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
+                # Encode frame as JPEG
+                ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if not ret:
+                    continue
+                
+                # MJPEG format: boundary + frame
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+                
+                # Small delay to control frame rate
+                time.sleep(0.05)  # ~20 FPS
+        except GeneratorExit:
+            # Client disconnected
+            pass
+        except Exception as e:
+            current_app.logger.error(f"Error in camera stream: {e}")
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+
+@bp.route("/camera/scan", methods=["POST"])
+def camera_scan():
+    """Process a scanned QR code token and validate the ticket.
+    
+    Request body (JSON):
+    {
+        "token": "PARKING:uuid-here" or "uuid-here"
+    }
+    
+    Returns:
+        JSON with ticket information if valid, error if not found
+    """
+    service = current_app.config.get("CAMERA_SERVICE")
+    if not service:
+        return jsonify({"error": "camera service unavailable"}), 503
+    
+    data = request.get_json()
+    if not data or "token" not in data:
+        return jsonify({"error": "Missing 'token' in request body"}), 400
+    
+    token = data.get("token")
+    
+    # Handle "PARKING:uuid" format
+    if token.startswith("PARKING:"):
+        token = token[8:]  # Remove "PARKING:" prefix
+    
+    # Look up ticket in database
+    ticket = get_ticket_by_token(token)
+    if not ticket:
+        return jsonify({
+            "success": False,
+            "error": "Ticket not found",
+            "token": token
+        }), 404
+    
+    # Return ticket information
+    return jsonify({
+        "success": True,
+        "ticket": {
+            "id": ticket["id"],
+            "token": ticket["token"],
+            "cabina_id": ticket["cabina_id"],
+            "entry_timestamp": ticket["entry_timestamp"],
+            "status": ticket["status"]
+        }
+    }), 200
 
 
 @bp.route("/db/cleanup", methods=["POST"])
