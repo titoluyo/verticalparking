@@ -410,32 +410,33 @@ def main():
         print("\n✗ Failed to start camera. Exiting.")
         return
     
-    print("\nCamera ready! Point QR code at camera...")
-    print("IMPORTANT: Click on the video window and press 'q' to quit")
-    print("Press 's' to save current frame\n")
+    print("\nCamera ready! Scanning for QR codes...")
+    print("Press Ctrl+C to stop\n")
     
     frame_count = 0
     last_qr_data = None
     last_qr_time = 0
     last_frame_time = time.time()
+    last_status_time = time.time()
+    
+    # Check if we have a display (for GUI)
+    has_display = os.getenv('DISPLAY') is not None
+    if not has_display:
+        print("ℹ No display available - running in console mode")
+        print("  QR codes will be printed to console when detected\n")
     
     try:
         while True:
             result = reader.read_frame()
             
-            # Always check for keyboard input (must be after imshow)
-            key = cv2.waitKey(30) & 0xFF  # Increased wait time for better key detection
-            if key == ord('q') or key == 27:  # 'q' or ESC
-                print("\nQuitting...")
-                break
-            
             if result is None:
                 # For libcamera backend, None is OK - just means no new frame yet
-                # Still check for keys and show last frame if available
+                time.sleep(0.05)
                 continue
             
             frame, success = result
             if not success or frame is None:
+                time.sleep(0.05)
                 continue
             
             frame_count += 1
@@ -457,28 +458,45 @@ def main():
                         last_qr_data = qr_data
                         last_qr_time = current_time
                 
-                # Draw overlay
-                reader.draw_qr_overlay(frame, qr_codes)
+                # Draw overlay if we have display
+                if has_display:
+                    reader.draw_qr_overlay(frame, qr_codes)
             else:
-                # Show "No QR code" message
-                cv2.putText(frame, "No QR code detected", (10, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                # Show "No QR code" message if we have display
+                if has_display:
+                    cv2.putText(frame, "No QR code detected", (10, 30),
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
             
-            # Show frame info
-            info_text = f"Frame: {frame_count} | FPS: {fps:.1f} | Backend: {reader.backend}"
-            cv2.putText(frame, info_text, (10, frame.shape[0] - 30),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            cv2.putText(frame, "Press 'q' or ESC to quit | 's' to save", (10, frame.shape[0] - 10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            # Show status in console every 5 seconds
+            if current_time - last_status_time > 5:
+                print(f"  Scanning... Frame: {frame_count}, FPS: {fps:.1f}")
+                last_status_time = current_time
             
-            # Display frame (must be before waitKey for key detection to work)
-            cv2.imshow('QR Code Reader', frame)
-            
-            # Handle 's' key for saving
-            if key == ord('s'):
-                filename = f"qr_frame_{int(time.time())}.jpg"
-                cv2.imwrite(filename, frame)
-                print(f"✓ Frame saved: {filename}")
+            # Display frame if we have display
+            if has_display:
+                # Show frame info
+                info_text = f"Frame: {frame_count} | FPS: {fps:.1f} | Backend: {reader.backend}"
+                cv2.putText(frame, info_text, (10, frame.shape[0] - 30),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(frame, "Press 'q' or ESC to quit | 's' to save", (10, frame.shape[0] - 10),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                
+                # Display frame
+                cv2.imshow('QR Code Reader', frame)
+                
+                # Check for keyboard input
+                key = cv2.waitKey(30) & 0xFF
+                if key == ord('q') or key == 27:  # 'q' or ESC
+                    print("\nQuitting...")
+                    break
+                elif key == ord('s'):
+                    filename = f"qr_frame_{int(time.time())}.jpg"
+                    cv2.imwrite(filename, frame)
+                    print(f"✓ Frame saved: {filename}")
+            else:
+                # No display - just process frames and print QR codes
+                # Small delay to prevent CPU spinning
+                time.sleep(0.05)
     
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
