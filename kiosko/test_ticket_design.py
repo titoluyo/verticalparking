@@ -48,7 +48,7 @@ try:
         try:
             # Load and process logo
             original_img = Image.open(logo_path)
-            MAX_WIDTH = 384  # 80mm thermal printer max width
+            MAX_WIDTH = 560 # 384  # 80mm thermal printer max width
             
             # Resize maintaining aspect ratio
             if original_img.size[0] > MAX_WIDTH:
