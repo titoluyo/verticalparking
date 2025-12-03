@@ -5,9 +5,12 @@ Tests all features of python-escpos and the Cashino KP-300 printer.
 """
 from escpos.printer import Usb
 import traceback
+import os
+from PIL import Image
 
 p = None
 try:
+    """
     print("=" * 50)
     print("Printer Capability Test")
     print("=" * 50)
@@ -271,6 +274,68 @@ try:
         p.text("After feed\n")
     except Exception as e:
         p.text(f"Paper feed failed: {e}\n")
+    
+    p.text("=" * 32 + "\n\n")
+    """
+
+    # Test 14: Image Printing - Logo
+    print("[TEST 14] Image Printing - Logo")
+    p.text("=" * 32 + "\n")
+    p.text("TEST 14: Image Printing\n")
+    
+    logo_path = "vertical_parking_logo.png"
+    if os.path.exists(logo_path):
+        try:
+            # Load and analyze original image
+            original_img = Image.open(logo_path)
+            original_size = original_img.size
+            original_mode = original_img.mode
+            print(f"Original image: {original_size[0]}x{original_size[1]} pixels, mode: {original_mode}")
+            
+            # For 80mm thermal printers, typical max width is 384 pixels (203 DPI)
+            # or 576 pixels (300 DPI). Using 384 for compatibility.
+            MAX_WIDTH = 384
+            
+            # Calculate new size maintaining aspect ratio
+            if original_size[0] > MAX_WIDTH:
+                ratio = MAX_WIDTH / original_size[0]
+                new_width = MAX_WIDTH
+                new_height = int(original_size[1] * ratio)
+            else:
+                new_width = original_size[0]
+                new_height = original_size[1]
+            
+            print(f"Resizing to: {new_width}x{new_height} pixels")
+            
+            # Resize image
+            resized_img = original_img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Convert to grayscale (thermal printers are monochrome)
+            if resized_img.mode != 'L':
+                resized_img = resized_img.convert('L')
+            
+            # Optional: Convert to 1-bit (black and white only) for better contrast
+            # Uncomment the next line if you want pure black/white
+            # resized_img = resized_img.convert('1')
+            
+            print(f"Processed image: {resized_img.size[0]}x{resized_img.size[1]} pixels, mode: {resized_img.mode}")
+            
+            p.text("Printing logo (resized)...\n")
+            p.text("\n")
+            
+            # Print image with center alignment
+            p.image(resized_img, center=True, high_density_vertical=True, high_density_horizontal=True)
+            
+            p.text("\n")
+            p.text("Logo printed successfully!\n")
+            
+        except Exception as e:
+            p.text(f"Image printing failed: {e}\n")
+            print(f"Image printing error: {e}")
+            traceback.print_exc()
+    else:
+        p.text(f"Logo file not found: {logo_path}\n")
+        print(f"Warning: Logo file not found at {logo_path}")
     
     p.text("=" * 32 + "\n\n")
 
