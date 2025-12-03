@@ -339,13 +339,11 @@ def print_entry_ticket():
     if not data:
         return jsonify({"error": "Missing request body"}), 400
     
-    vehicle_plate = data.get("vehicle_plate")
+    vehicle_plate = data.get("vehicle_plate", "")  # Optional, not displayed on ticket
     cabin_id = data.get("cabin_id")
     timestamp = data.get("timestamp")
     ticket_id = data.get("ticket_id")
     
-    if not vehicle_plate:
-        return jsonify({"error": "Missing required field: vehicle_plate"}), 400
     if not cabin_id:
         return jsonify({"error": "Missing required field: cabin_id"}), 400
     
@@ -360,7 +358,6 @@ def print_entry_ticket():
         return jsonify({
             "success": True,
             "message": "Entry ticket printed successfully",
-            "vehicle_plate": vehicle_plate,
             "cabin_id": cabin_id,
             "ticket_id": ticket_id
         }), 200
