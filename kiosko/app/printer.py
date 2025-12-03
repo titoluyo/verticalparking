@@ -262,9 +262,17 @@ Cost: ${cost}
                     except Exception:
                         pass  # Already open or doesn't need explicit open
                 
+                # Set encoding to CP850 for Spanish character support
+                try:
+                    self._printer.charcode("CP850")
+                except Exception:
+                    pass  # Continue if encoding fails
+                
                 # Print entry ticket
                 self._printer.text("\n")
+                self._printer.set(align="center", bold=True, font="a")
                 self._printer.text("PARKING ENTRY TICKET\n")
+                self._printer.set(align="left", bold=False, font="a")
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text(f"Vehicle: {vehicle_plate}\n")
                 self._printer.text(f"Cabin: {cabin_id}\n")
@@ -339,9 +347,17 @@ Cost: ${cost}
                     except Exception:
                         pass  # Already open or doesn't need explicit open
                 
+                # Set encoding to CP850 for Spanish character support
+                try:
+                    self._printer.charcode("CP850")
+                except Exception:
+                    pass  # Continue if encoding fails
+                
                 # Print exit ticket
                 self._printer.text("\n")
+                self._printer.set(align="center", bold=True, font="a")
                 self._printer.text("PARKING EXIT TICKET\n")
+                self._printer.set(align="left", bold=False, font="a")
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text(f"Vehicle: {vehicle_plate}\n")
                 self._printer.text(f"Entry Time: {entry_time}\n")
@@ -418,9 +434,17 @@ Time: {time}
                     except Exception:
                         pass  # Already open or doesn't need explicit open
                 
-                # Try simple text first (more compatible)
+                # Set encoding to CP850 for Spanish character support
+                try:
+                    self._printer.charcode("CP850")
+                except Exception:
+                    pass  # Continue if encoding fails
+                
+                # Print test ticket
                 self._printer.text("\n")
+                self._printer.set(align="center", bold=True, font="a")
                 self._printer.text("PRINTER TEST TICKET\n")
+                self._printer.set(align="left", bold=False, font="a")
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text("This is a test print from\n")
                 self._printer.text("the Kiosko parking system.\n")
@@ -428,11 +452,11 @@ Time: {time}
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text("\n\n")
                 
-                # Try to cut paper (may fail on some printers)
+                # Try to cut paper
                 try:
                     self._printer.cut()
                 except Exception as cut_error:
-                    self.logger.warning("Paper cut failed (may not be supported): %s", cut_error)
+                    self.logger.warning("Paper cut failed: %s", cut_error)
                     # Send line feeds instead
                     self._printer.text("\n\n\n")
                 

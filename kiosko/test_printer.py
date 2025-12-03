@@ -183,7 +183,7 @@ try:
         ("EAN8", "12345670"),
         ("CODE39", "TEST123"),
         ("ITF", "1234567890"),
-        ("CODE128", "TEST-12345"),
+        ("CODE128", "TEST12345"),  # CODE128 requires alphanumeric without special chars
     ]
     
     for btype, data in barcode_types:
@@ -223,8 +223,18 @@ try:
     print("[TEST 10] Cut Types")
     p.text("=" * 32 + "\n")
     p.text("TEST 10: Cut Types\n")
-    p.text("Testing different cut types...\n")
-    p.text("(Check if paper was cut)\n")
+    p.text("Testing full cut...\n")
+    try:
+        p.cut()
+        p.text("(Paper should be cut above)\n")
+    except Exception as e:
+        p.text(f"Cut failed: {e}\n")
+    p.text("Testing partial cut...\n")
+    try:
+        p.cut(mode="PARTIAL")
+        p.text("(Paper should be partially cut above)\n")
+    except Exception as e:
+        p.text(f"Partial cut failed: {e}\n")
     p.text("=" * 32 + "\n\n")
 
     # Test 11: Combined Formatting
