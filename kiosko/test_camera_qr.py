@@ -93,7 +93,7 @@ class CameraQRReader:
         print(f"Using camera backend: {self.backend}")
         
         if self.backend == 'libcamera':
-            # Use rpicam-still in a loop to capture frames
+            # Use rpicam-still in a loop to capture frames continuously
             # This is simpler and more reliable than rpicam-vid with segments
             try:
                 # Determine which command to use
@@ -119,7 +119,7 @@ class CameraQRReader:
                 self.last_capture_time = 0
                 self.capture_interval = 0.1  # Capture every 100ms (10 FPS)
                 
-                # Test capture
+                # Test capture to verify camera works
                 test_result = subprocess.run(
                     [
                         self.libcamera_cmd,
@@ -135,6 +135,7 @@ class CameraQRReader:
                 
                 if test_result.returncode == 0 and os.path.exists(self.frame_path) and os.path.getsize(self.frame_path) > 0:
                     print(f"✓ Raspberry Pi camera initialized via {self.libcamera_cmd}")
+                    print(f"  Will capture frames at ~{1/self.capture_interval:.1f} FPS")
                     return True
                 else:
                     stderr = test_result.stderr.decode() if test_result.stderr else ""
@@ -276,7 +277,7 @@ class CameraQRReader:
                 # Capture a new frame if enough time has passed
                 current_time = time.time()
                 if current_time - self.last_capture_time >= self.capture_interval:
-                    # Capture new frame
+                    # Capture new frame (non-blocking with short timeout)
                     result = subprocess.run(
                         [
                             self.libcamera_cmd,
@@ -292,17 +293,19 @@ class CameraQRReader:
                     
                     if result.returncode == 0:
                         self.last_capture_time = current_time
-                    # If capture failed, try to read last frame anyway
+                    # If capture failed, we'll try to read the last frame
                 
                 # Read the frame file
                 if os.path.exists(self.frame_path):
                     file_size = os.path.getsize(self.frame_path)
                     if file_size > 0:
+                        # Read the image
                         frame = cv2.imread(self.frame_path)
                         if frame is not None and frame.size > 0:
                             return (frame, True)
                 return None
             except Exception as e:
+                # Silently fail and return None - will retry next frame
                 return None
         elif self.backend == 'picamera2' and self.picam2:
             try:
@@ -418,8 +421,10 @@ def main():
         while True:
             result = reader.read_frame()
             if result is None:
-                print("Failed to read frame")
-                break
+                # For libcamera backend, None is OK - just means no new frame yet
+                # Wait a bit and try again
+                time.sleep(0.01)
+                continue
             
             frame, success = result
             if not success:
