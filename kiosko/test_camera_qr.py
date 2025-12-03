@@ -15,6 +15,8 @@ Press 'q' to quit, 's' to save current frame.
 import sys
 import platform
 import time
+import subprocess
+import numpy as np
 from typing import Optional, Tuple
 
 # Try to import camera libraries
@@ -52,23 +54,24 @@ except Exception as e:
 
 def detect_camera_backend() -> str:
     """Detect which camera backend to use."""
-    # For now, always use OpenCV as it's more reliable and works with rpicam
-    # OpenCV can access the camera via V4L2 on Raspberry Pi
-    # picamera2 can be used later if needed, but requires python-prctl which has build issues
+    # On Raspberry Pi with libcamera, we need to use libcamera-vid/rpicam-vid
+    # to capture frames, then process with OpenCV
+    if platform.system() == "Linux":
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                if 'Raspberry Pi' in f.read():
+                    # Check if rpicam-vid or libcamera-vid is available
+                    if subprocess.run(['which', 'rpicam-vid'], 
+                                    capture_output=True).returncode == 0:
+                        return 'libcamera'
+                    elif subprocess.run(['which', 'libcamera-vid'], 
+                                      capture_output=True).returncode == 0:
+                        return 'libcamera'
+        except:
+            pass
+    
+    # Fallback to OpenCV (works on Windows and Linux with USB cameras)
     return 'opencv'
-    
-    # Original picamera2 detection (commented out due to python-prctl build issues)
-    # if PICAMERA2_AVAILABLE and platform.system() == "Linux":
-    #     # Check if we're on Raspberry Pi
-    #     try:
-    #         with open('/proc/cpuinfo', 'r') as f:
-    #             if 'Raspberry Pi' in f.read():
-    #                 return 'picamera2'
-    #     except:
-    #         pass
-    
-    # # Fallback to OpenCV (works on Windows and Linux with USB cameras)
-    # return 'opencv'
 
 
 class CameraQRReader:
@@ -79,12 +82,73 @@ class CameraQRReader:
         self.backend = detect_camera_backend()
         self.camera = None
         self.picam2 = None
+        self.libcamera_process = None
         self.frame_width = 640
         self.frame_height = 480
         
     def start(self) -> bool:
         """Initialize and start camera."""
         print(f"Using camera backend: {self.backend}")
+        
+        if self.backend == 'libcamera':
+            # Use rpicam-vid to capture frames via stdout
+            # OpenCV can read MJPEG stream from stdout
+            try:
+                # Determine which command to use
+                if subprocess.run(['which', 'rpicam-vid'], 
+                                capture_output=True).returncode == 0:
+                    cmd = 'rpicam-vid'
+                elif subprocess.run(['which', 'libcamera-vid'], 
+                                  capture_output=True).returncode == 0:
+                    cmd = 'libcamera-vid'
+                else:
+                    print("✗ rpicam-vid or libcamera-vid not found")
+                    print("  Install with: sudo apt install -y rpicam-apps")
+                    self.backend = 'opencv'
+                    return False
+                
+                # Start libcamera process to capture frames to stdout as MJPEG
+                self.libcamera_process = subprocess.Popen(
+                    [
+                        cmd,
+                        '--width', str(self.frame_width),
+                        '--height', str(self.frame_height),
+                        '--timeout', '0',  # Continuous
+                        '--output', '-',  # stdout
+                        '--nopreview',
+                        '--codec', 'mjpeg',
+                        '--inline',  # Include headers in output
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    bufsize=0  # Unbuffered
+                )
+                
+                # Give it a moment to start
+                time.sleep(0.5)
+                
+                # Check if process is still running
+                if self.libcamera_process.poll() is None:
+                    # Create VideoCapture from pipe
+                    # We'll read raw bytes and decode MJPEG frames
+                    print(f"✓ Raspberry Pi camera initialized via {cmd}")
+                    self.libcamera_stdout = self.libcamera_process.stdout
+                    return True
+                else:
+                    stderr_output = self.libcamera_process.stderr.read().decode()
+                    print(f"✗ Failed to start {cmd}")
+                    print(f"  Error: {stderr_output}")
+                    self.stop()
+                    self.backend = 'opencv'
+                    return False
+                    
+            except Exception as e:
+                print(f"✗ Failed to initialize libcamera: {e}")
+                print("  Falling back to OpenCV...")
+                self.backend = 'opencv'
+                if hasattr(self, 'libcamera_process') and self.libcamera_process:
+                    self.stop()
+                return False
         
         if self.backend == 'picamera2':
             try:
@@ -105,30 +169,77 @@ class CameraQRReader:
         # OpenCV backend (works with Raspberry Pi camera via V4L2)
         # On Raspberry Pi, the camera appears as /dev/video0 or /dev/video1
         try:
+            # First, try to find available video devices
+            import os
+            video_devices = []
+            for i in range(10):
+                dev_path = f"/dev/video{i}"
+                if os.path.exists(dev_path):
+                    video_devices.append((i, dev_path))
+            
+            if video_devices:
+                print(f"Found video devices: {[f'{idx} ({path})' for idx, path in video_devices]}")
+            else:
+                print("No /dev/video* devices found")
+                print("  Trying default camera indices anyway...")
+            
             # Try different camera indices (0, 1, etc.)
-            for idx in range(3):  # Try indices 0, 1, 2
-                self.camera = cv2.VideoCapture(idx)
-                if self.camera.isOpened():
-                    # Test if we can read a frame
-                    ret, test_frame = self.camera.read()
-                    if ret:
-                        self.camera_index = idx
-                        break
-                    else:
-                        self.camera.release()
-                else:
+            camera_opened = False
+            for idx in range(5):  # Try indices 0-4
+                try:
+                    # Try opening with index
+                    self.camera = cv2.VideoCapture(idx)
+                    if self.camera.isOpened():
+                        # Test if we can read a frame (with timeout)
+                        self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer
+                        ret, test_frame = self.camera.read()
+                        if ret and test_frame is not None and test_frame.size > 0:
+                            self.camera_index = idx
+                            camera_opened = True
+                            break
+                        else:
+                            self.camera.release()
+                            self.camera = None
+                except Exception as e:
                     if self.camera:
                         self.camera.release()
+                        self.camera = None
+                    continue
             
-            if not self.camera or not self.camera.isOpened():
-                print(f"✗ Failed to open camera (tried indices 0-2)")
+            # If index-based failed, try direct device path
+            if not camera_opened and video_devices:
+                print("Trying direct device paths...")
+                for idx, dev_path in video_devices:
+                    try:
+                        self.camera = cv2.VideoCapture(dev_path)
+                        if self.camera.isOpened():
+                            ret, test_frame = self.camera.read()
+                            if ret and test_frame is not None and test_frame.size > 0:
+                                self.camera_index = dev_path
+                                camera_opened = True
+                                print(f"✓ Opened camera via direct path: {dev_path}")
+                                break
+                            else:
+                                self.camera.release()
+                                self.camera = None
+                    except Exception as e:
+                        if self.camera:
+                            self.camera.release()
+                            self.camera = None
+                        continue
+            
+            if not camera_opened:
+                print(f"✗ Failed to open camera")
+                print("  Tried indices 0-4 and direct device paths")
                 print("  Make sure camera is connected and accessible")
                 print("  On Raspberry Pi, check with: ls -l /dev/video*")
+                print("  Test camera with: rpicam-hello")
                 return False
             
-            # Set resolution
+            # Set resolution (may not work on all cameras, but try anyway)
             self.camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
             self.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
             
             # Get actual resolution
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -145,7 +256,51 @@ class CameraQRReader:
         Returns:
             Tuple of (frame, success) or None if error
         """
-        if self.backend == 'picamera2' and self.picam2:
+        if self.backend == 'libcamera' and self.libcamera_process:
+            try:
+                # Read MJPEG stream from stdout
+                # MJPEG frames start with FF D8 and end with FF D9
+                if not hasattr(self, 'libcamera_buffer'):
+                    self.libcamera_buffer = bytearray()
+                
+                # Read available data
+                data = self.libcamera_stdout.read(8192)
+                if not data:
+                    return None
+                
+                self.libcamera_buffer.extend(data)
+                
+                # Find JPEG frame markers
+                start_marker = b'\xff\xd8'
+                end_marker = b'\xff\xd9'
+                
+                start_idx = self.libcamera_buffer.find(start_marker)
+                if start_idx == -1:
+                    return None
+                
+                # Remove data before start marker
+                if start_idx > 0:
+                    self.libcamera_buffer = self.libcamera_buffer[start_idx:]
+                
+                # Find end marker
+                end_idx = self.libcamera_buffer.find(end_marker, 2)
+                if end_idx == -1:
+                    return None  # Need more data
+                
+                # Extract frame
+                frame_data = bytes(self.libcamera_buffer[:end_idx + 2])
+                self.libcamera_buffer = self.libcamera_buffer[end_idx + 2:]
+                
+                # Decode JPEG
+                frame_array = np.frombuffer(frame_data, dtype=np.uint8)
+                frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
+                
+                if frame is not None and frame.size > 0:
+                    return (frame, True)
+                return None
+            except Exception as e:
+                return None
+        elif self.backend == 'picamera2' and self.picam2:
             try:
                 frame = self.picam2.capture_array()
                 # Convert RGB to BGR for OpenCV
@@ -210,6 +365,26 @@ class CameraQRReader:
     
     def stop(self) -> None:
         """Stop and release camera."""
+        if self.libcamera_process:
+            try:
+                self.libcamera_process.terminate()
+                try:
+                    self.libcamera_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.libcamera_process.kill()
+                    self.libcamera_process.wait()
+            except:
+                try:
+                    self.libcamera_process.kill()
+                except:
+                    pass
+            # Close stdout
+            if hasattr(self, 'libcamera_stdout'):
+                try:
+                    self.libcamera_stdout.close()
+                except:
+                    pass
+        
         if self.picam2:
             try:
                 self.picam2.stop()
