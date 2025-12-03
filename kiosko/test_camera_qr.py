@@ -92,63 +92,65 @@ class CameraQRReader:
         print(f"Using camera backend: {self.backend}")
         
         if self.backend == 'libcamera':
-            # Use rpicam-vid to capture frames via stdout
-            # OpenCV can read MJPEG stream from stdout
+            # Use rpicam-still in a loop to capture frames
+            # This is simpler and more reliable than rpicam-vid with segments
             try:
                 # Determine which command to use
-                if subprocess.run(['which', 'rpicam-vid'], 
+                if subprocess.run(['which', 'rpicam-still'], 
                                 capture_output=True).returncode == 0:
-                    cmd = 'rpicam-vid'
-                elif subprocess.run(['which', 'libcamera-vid'], 
+                    self.libcamera_cmd = 'rpicam-still'
+                elif subprocess.run(['which', 'libcamera-still'], 
                                   capture_output=True).returncode == 0:
-                    cmd = 'libcamera-vid'
+                    self.libcamera_cmd = 'libcamera-still'
                 else:
-                    print("✗ rpicam-vid or libcamera-vid not found")
+                    print("✗ rpicam-still or libcamera-still not found")
                     print("  Install with: sudo apt install -y rpicam-apps")
+                    print("  Falling back to OpenCV...")
                     self.backend = 'opencv'
                     return False
                 
-                # Start libcamera process to capture frames to stdout as MJPEG
-                self.libcamera_process = subprocess.Popen(
+                # Create temporary file for frames
+                import tempfile
+                self.temp_frame_file = tempfile.NamedTemporaryFile(
+                    suffix='.jpg', delete=False
+                )
+                self.temp_frame_file.close()
+                self.frame_path = self.temp_frame_file.name
+                self.last_capture_time = 0
+                self.capture_interval = 0.1  # Capture every 100ms (10 FPS)
+                
+                # Test capture
+                test_result = subprocess.run(
                     [
-                        cmd,
+                        self.libcamera_cmd,
                         '--width', str(self.frame_width),
                         '--height', str(self.frame_height),
-                        '--timeout', '0',  # Continuous
-                        '--output', '-',  # stdout
+                        '--output', self.frame_path,
                         '--nopreview',
-                        '--codec', 'mjpeg',
-                        '--inline',  # Include headers in output
+                        '--timeout', '1000',  # 1 second timeout
                     ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    bufsize=0  # Unbuffered
+                    capture_output=True,
+                    timeout=2
                 )
                 
-                # Give it a moment to start
-                time.sleep(0.5)
-                
-                # Check if process is still running
-                if self.libcamera_process.poll() is None:
-                    # Create VideoCapture from pipe
-                    # We'll read raw bytes and decode MJPEG frames
-                    print(f"✓ Raspberry Pi camera initialized via {cmd}")
-                    self.libcamera_stdout = self.libcamera_process.stdout
+                if test_result.returncode == 0 and os.path.exists(self.frame_path) and os.path.getsize(self.frame_path) > 0:
+                    print(f"✓ Raspberry Pi camera initialized via {self.libcamera_cmd}")
                     return True
                 else:
-                    stderr_output = self.libcamera_process.stderr.read().decode()
-                    print(f"✗ Failed to start {cmd}")
-                    print(f"  Error: {stderr_output}")
-                    self.stop()
+                    stderr = test_result.stderr.decode() if test_result.stderr else ""
+                    print(f"✗ Failed to test camera capture")
+                    if stderr:
+                        print(f"  Error: {stderr[:200]}")
+                    print("  Falling back to OpenCV...")
                     self.backend = 'opencv'
                     return False
                     
             except Exception as e:
                 print(f"✗ Failed to initialize libcamera: {e}")
+                import traceback
+                traceback.print_exc()
                 print("  Falling back to OpenCV...")
                 self.backend = 'opencv'
-                if hasattr(self, 'libcamera_process') and self.libcamera_process:
-                    self.stop()
                 return False
         
         if self.backend == 'picamera2':
@@ -207,13 +209,26 @@ class CameraQRReader:
                         self.camera = None
                     continue
             
-            # If index-based failed, try direct device path
+            # If index-based failed, try direct device paths
+            # On Raspberry Pi, try ISP devices first (video13, video14) as they're more likely to work
             if not camera_opened and video_devices:
                 print("Trying direct device paths...")
+                # Prioritize ISP devices (video13, video14) which are more likely to work
+                prioritized_devices = []
+                other_devices = []
                 for idx, dev_path in video_devices:
+                    if 'video13' in dev_path or 'video14' in dev_path:
+                        prioritized_devices.append((idx, dev_path))
+                    else:
+                        other_devices.append((idx, dev_path))
+                
+                # Try prioritized devices first, then others
+                for idx, dev_path in prioritized_devices + other_devices:
                     try:
                         self.camera = cv2.VideoCapture(dev_path)
                         if self.camera.isOpened():
+                            # Set buffer size to reduce latency
+                            self.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                             ret, test_frame = self.camera.read()
                             if ret and test_frame is not None and test_frame.size > 0:
                                 self.camera_index = dev_path
@@ -257,89 +272,38 @@ class CameraQRReader:
         Returns:
             Tuple of (frame, success) or None if error
         """
-        if self.backend == 'libcamera' and self.libcamera_process:
+        if self.backend == 'libcamera' and hasattr(self, 'libcamera_cmd'):
             try:
-                # Read MJPEG stream from stdout
-                # MJPEG frames start with FF D8 and end with FF D9
-                if not hasattr(self, 'libcamera_buffer'):
-                    self.libcamera_buffer = bytearray()
+                # Capture a new frame if enough time has passed
+                current_time = time.time()
+                if current_time - self.last_capture_time >= self.capture_interval:
+                    # Capture new frame
+                    result = subprocess.run(
+                        [
+                            self.libcamera_cmd,
+                            '--width', str(self.frame_width),
+                            '--height', str(self.frame_height),
+                            '--output', self.frame_path,
+                            '--nopreview',
+                            '--timeout', '100',  # 100ms timeout for faster capture
+                        ],
+                        capture_output=True,
+                        timeout=0.5
+                    )
+                    
+                    if result.returncode == 0:
+                        self.last_capture_time = current_time
+                    # If capture failed, try to read last frame anyway
                 
-                # Check if process is still running
-                if self.libcamera_process.poll() is not None:
-                    return None
-                
-                # Read available data (non-blocking)
-                import select
-                import fcntl
-                
-                # Make stdout non-blocking
-                if not hasattr(self, '_stdout_set_nonblock'):
-                    flags = fcntl.fcntl(self.libcamera_stdout, fcntl.F_GETFL)
-                    fcntl.fcntl(self.libcamera_stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-                    self._stdout_set_nonblock = True
-                
-                try:
-                    data = self.libcamera_stdout.read(16384)  # Read more data
-                except BlockingIOError:
-                    # No data available yet
-                    if len(self.libcamera_buffer) > 0:
-                        # Try to parse what we have
-                        pass
-                    else:
-                        return None
-                
-                if data:
-                    self.libcamera_buffer.extend(data)
-                
-                # Keep buffer size reasonable (max 1MB)
-                if len(self.libcamera_buffer) > 1024 * 1024:
-                    self.libcamera_buffer = bytearray()
-                    return None
-                
-                # Find JPEG frame markers
-                start_marker = b'\xff\xd8'
-                end_marker = b'\xff\xd9'
-                
-                # Look for start marker
-                start_idx = -1
-                for i in range(len(self.libcamera_buffer) - 1):
-                    if self.libcamera_buffer[i] == 0xff and self.libcamera_buffer[i+1] == 0xd8:
-                        start_idx = i
-                        break
-                
-                if start_idx == -1:
-                    return None  # No frame start found
-                
-                # Remove data before start marker
-                if start_idx > 0:
-                    self.libcamera_buffer = self.libcamera_buffer[start_idx:]
-                    start_idx = 0
-                
-                # Find end marker after start
-                end_idx = -1
-                for i in range(2, len(self.libcamera_buffer) - 1):
-                    if self.libcamera_buffer[i] == 0xff and self.libcamera_buffer[i+1] == 0xd9:
-                        end_idx = i + 2
-                        break
-                
-                if end_idx == -1:
-                    return None  # Need more data for complete frame
-                
-                # Extract frame
-                frame_data = bytes(self.libcamera_buffer[:end_idx])
-                self.libcamera_buffer = self.libcamera_buffer[end_idx:]
-                
-                # Decode JPEG
-                frame_array = np.frombuffer(frame_data, dtype=np.uint8)
-                frame = cv2.imdecode(frame_array, cv2.IMREAD_COLOR)
-                
-                if frame is not None and frame.size > 0:
-                    return (frame, True)
+                # Read the frame file
+                if os.path.exists(self.frame_path):
+                    file_size = os.path.getsize(self.frame_path)
+                    if file_size > 0:
+                        frame = cv2.imread(self.frame_path)
+                        if frame is not None and frame.size > 0:
+                            return (frame, True)
                 return None
             except Exception as e:
-                # Reset buffer on error
-                if hasattr(self, 'libcamera_buffer'):
-                    self.libcamera_buffer = bytearray()
                 return None
         elif self.backend == 'picamera2' and self.picam2:
             try:
@@ -406,25 +370,14 @@ class CameraQRReader:
     
     def stop(self) -> None:
         """Stop and release camera."""
-        if self.libcamera_process:
+        # Clean up temp file
+        if hasattr(self, 'temp_frame_file'):
             try:
-                self.libcamera_process.terminate()
-                try:
-                    self.libcamera_process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self.libcamera_process.kill()
-                    self.libcamera_process.wait()
+                os.unlink(self.temp_frame_file.name)
             except:
-                try:
-                    self.libcamera_process.kill()
-                except:
-                    pass
-            # Close stdout
-            if hasattr(self, 'libcamera_stdout'):
-                try:
-                    self.libcamera_stdout.close()
-                except:
-                    pass
+                pass
+        
+        # No process to kill for rpicam-still approach (each capture is separate)
         
         if self.picam2:
             try:
