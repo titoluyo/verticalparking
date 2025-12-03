@@ -420,10 +420,29 @@ Then **log out and log back in** for group membership to take effect.
 
 6. **Test printer:**
    ```bash
-   # Test directly with Python
+   # Test directly with Python (with proper cleanup)
    cd ~/verticalparking/kiosko
    source .venv/bin/activate
-   python3 -c "from escpos.printer import Usb; p = Usb(0x0fe6, 0x811e); p.text('Test\n'); p.cut()"
+   python3 -c "from escpos.printer import Usb; p = Usb(0x0fe6, 0x811e); p.text('Test\n'); p.cut(); p.close()"
+   ```
+   
+   Or use a test script with error handling:
+   ```bash
+   python3 << 'EOF'
+   from escpos.printer import Usb
+   try:
+       p = Usb(0x0fe6, 0x811e)
+       p.text('Test\n')
+       p.cut()
+       print('Print successful!')
+   except Exception as e:
+       print(f'Error: {e}')
+   finally:
+       try:
+           p.close()
+       except:
+           pass
+   EOF
    ```
    
    Or test via API (after starting Flask app):
