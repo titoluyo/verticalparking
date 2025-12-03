@@ -154,6 +154,135 @@ class PrinterService:
             self._status_detail = f"Initialization error: {str(e)}"
             self.logger.error("Printer initialization failed: %s", e)
     
+    def _check_connection(self) -> bool:
+        """Check if printer connection is healthy and reconnect if needed.
+        
+        This method performs a lightweight check. If the connection appears broken,
+        it attempts to reconnect. Actual connection health is validated during
+        print operations, which will trigger reconnection on errors.
+        
+        Returns:
+            True if connection is available, False otherwise
+        """
+        if not ESCPOS_AVAILABLE:
+            return False
+        
+        if self._printer is None:
+            # Try to reconnect if we had a printer before
+            return self._reconnect()
+        
+        # For USB printers, verify device is still accessible
+        try:
+            if hasattr(self._printer, 'device'):
+                # Access device property - this will raise an exception if disconnected
+                # We use a simple attribute access as a health check
+                _ = self._printer.device
+            # For serial printers, assume connection is stable
+            # (serial connections are typically more reliable)
+            return True
+        except (AttributeError, Exception) as e:
+            # Connection appears broken, attempt to reconnect
+            self.logger.debug("Printer connection check failed, attempting to reconnect: %s", e)
+            return self._reconnect()
+    
+    def _reconnect(self) -> bool:
+        """Reconnect to printer after connection loss.
+        
+        Returns:
+            True if reconnection succeeded, False otherwise
+        """
+        if not ESCPOS_AVAILABLE:
+            return False
+        
+        # Close existing connection if it exists
+        if self._printer is not None:
+            try:
+                if hasattr(self._printer, 'close'):
+                    self._printer.close()
+            except Exception:
+                pass  # Ignore errors when closing broken connection
+            self._printer = None
+        
+        # Reset status
+        self._available = False
+        self._status = "reconnecting"
+        self._status_detail = "Attempting to reconnect to printer"
+        
+        # Try to reconnect using the same method as initialization
+        try:
+            # Try USB connection first (with saved IDs)
+            if self.vendor_id and self.product_id:
+                try:
+                    self._printer = Usb(self.vendor_id, self.product_id)
+                    self._available = True
+                    self._status = "connected"
+                    self._status_detail = f"USB (vendor=0x{self.vendor_id:04x}, product=0x{self.product_id:04x})"
+                    self.logger.info("Printer reconnected via USB: %s", self._status_detail)
+                    return True
+                except Exception as e:
+                    self.logger.debug("Reconnection via USB with specified IDs failed: %s", e)
+            
+            # Try automatic USB detection
+            if not self.serial_port:
+                try:
+                    # Try auto-detection
+                    try:
+                        self._printer = Usb()
+                        self._available = True
+                        self._status = "connected"
+                        self._status_detail = "USB auto-detected"
+                        self.logger.info("Printer reconnected via USB auto-detection")
+                        return True
+                    except Exception:
+                        pass
+                    
+                    # Try common IDs
+                    common_ids = [
+                        (0x0fe6, 0x811e),  # ICS Advent Parallel Adapter
+                        (0x04f9, 0x2016),  # Brother QL-710W
+                        (0x04f9, 0x2042),  # Brother QL-820NWB
+                        (0x04f9, 0x2043),  # Brother QL-1050
+                        (0x04f9, 0x2044),  # Brother QL-1060N
+                        (0x04f9, 0x2045),  # Brother QL-1110NWB
+                    ]
+                    
+                    for vid, pid in common_ids:
+                        try:
+                            self._printer = Usb(vid, pid)
+                            self._available = True
+                            self._status = "connected"
+                            self._status_detail = f"USB auto-detected (vendor=0x{vid:04x}, product=0x{pid:04x})"
+                            self.logger.info("Printer reconnected via USB with common ID: %s", self._status_detail)
+                            return True
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+            
+            # Try serial connection
+            if self.serial_port:
+                try:
+                    self._printer = Serial(devfile=self.serial_port, baudrate=self.baudrate)
+                    self._available = True
+                    self._status = "connected"
+                    self._status_detail = f"Serial ({self.serial_port} @ {self.baudrate} baud)"
+                    self.logger.info("Printer reconnected via serial: %s", self._status_detail)
+                    return True
+                except Exception as e:
+                    self.logger.debug("Reconnection via serial failed: %s", e)
+            
+            # Reconnection failed
+            self._status = "disconnected"
+            self._status_detail = "Printer disconnected, reconnection failed"
+            self.logger.warning("Printer reconnection failed, will retry on next print")
+            return False
+            
+        except Exception as e:
+            self._status = "error"
+            self._status_detail = f"Reconnection error: {str(e)}"
+            self.logger.error("Printer reconnection error: %s", e)
+            return False
+    
     @classmethod
     def from_env(cls, logger: Optional[logging.Logger] = None) -> "PrinterService":
         """Create PrinterService from environment variables."""
@@ -264,14 +393,13 @@ Cost: ${cost}
                 self._print_simulation(content)
                 return True
             
+            # Check connection health and reconnect if needed
+            if not self._check_connection():
+                self.logger.warning("Printer connection unavailable, using simulation mode")
+                self._print_simulation(content)
+                return True
+            
             try:
-                # Ensure printer connection is open
-                if hasattr(self._printer, 'open'):
-                    try:
-                        self._printer.open()
-                    except Exception:
-                        pass  # Already open or doesn't need explicit open
-                
                 # Set encoding to CP850 for Spanish character support
                 try:
                     self._printer.charcode("CP850")
@@ -321,32 +449,17 @@ Cost: ${cost}
                 except Exception:
                     p.text("\n\n\n")
                 
-                # Close connection if needed
-                if hasattr(p, 'close'):
-                    try:
-                        p.close()
-                    except Exception:
-                        pass
-                
                 self.logger.info("Entry ticket printed: cabin=%s, ticket_id=%s", cabin_id, ticket_id)
                 return True
             except EscposError as e:
                 self.logger.error("Printer error while printing entry ticket: %s", e, exc_info=True)
-                self._status = "error"
-                self._status_detail = f"Print error: {str(e)}"
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
             except Exception as e:
                 self.logger.error("Unexpected error while printing entry ticket: %s", e, exc_info=True)
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
     
     def print_exit_ticket(self, vehicle_plate: str, entry_time: str, exit_time: str, duration: str, cost: str) -> bool:
@@ -373,14 +486,13 @@ Cost: ${cost}
                 self._print_simulation(content)
                 return True
             
+            # Check connection health and reconnect if needed
+            if not self._check_connection():
+                self.logger.warning("Printer connection unavailable, using simulation mode")
+                self._print_simulation(content)
+                return True
+            
             try:
-                # Ensure printer connection is open
-                if hasattr(self._printer, 'open'):
-                    try:
-                        self._printer.open()
-                    except Exception:
-                        pass  # Already open or doesn't need explicit open
-                
                 # Set encoding to CP850 for Spanish character support
                 try:
                     self._printer.charcode("CP850")
@@ -407,32 +519,17 @@ Cost: ${cost}
                 except Exception:
                     self._printer.text("\n\n\n")
                 
-                # Close connection if needed
-                if hasattr(self._printer, 'close'):
-                    try:
-                        self._printer.close()
-                    except Exception:
-                        pass
-                
                 self.logger.info("Exit ticket printed: vehicle=%s, cost=%s", vehicle_plate, cost)
                 return True
             except EscposError as e:
                 self.logger.error("Printer error while printing exit ticket: %s", e, exc_info=True)
-                self._status = "error"
-                self._status_detail = f"Print error: {str(e)}"
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
             except Exception as e:
                 self.logger.error("Unexpected error while printing exit ticket: %s", e, exc_info=True)
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
     
     def print_test(self) -> bool:
@@ -460,14 +557,13 @@ Time: {time}
                 self._print_simulation(test_content)
                 return True
             
+            # Check connection health and reconnect if needed
+            if not self._check_connection():
+                self.logger.warning("Printer connection unavailable, using simulation mode")
+                self._print_simulation(test_content)
+                return True
+            
             try:
-                # Ensure printer connection is open
-                if hasattr(self._printer, 'open'):
-                    try:
-                        self._printer.open()
-                    except Exception:
-                        pass  # Already open or doesn't need explicit open
-                
                 # Set encoding to CP850 for Spanish character support
                 try:
                     self._printer.charcode("CP850")
@@ -494,31 +590,16 @@ Time: {time}
                     # Send line feeds instead
                     self._printer.text("\n\n\n")
                 
-                # Close connection if needed
-                if hasattr(self._printer, 'close'):
-                    try:
-                        self._printer.close()
-                    except Exception:
-                        pass
-                
                 self.logger.info("Test ticket printed successfully")
                 return True
             except EscposError as e:
                 self.logger.error("Printer error while printing test ticket: %s", e, exc_info=True)
-                self._status = "error"
-                self._status_detail = f"Print error: {str(e)}"
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
             except Exception as e:
                 self.logger.error("Unexpected error while printing test ticket: %s", e, exc_info=True)
-                try:
-                    if hasattr(self._printer, 'close'):
-                        self._printer.close()
-                except Exception:
-                    pass
+                # Attempt to reconnect on error
+                self._reconnect()
                 return False
 
