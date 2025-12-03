@@ -16,6 +16,7 @@ import sys
 import platform
 import time
 import subprocess
+import os
 import numpy as np
 from typing import Optional, Tuple
 
@@ -263,33 +264,70 @@ class CameraQRReader:
                 if not hasattr(self, 'libcamera_buffer'):
                     self.libcamera_buffer = bytearray()
                 
-                # Read available data
-                data = self.libcamera_stdout.read(8192)
-                if not data:
+                # Check if process is still running
+                if self.libcamera_process.poll() is not None:
                     return None
                 
-                self.libcamera_buffer.extend(data)
+                # Read available data (non-blocking)
+                import select
+                import fcntl
+                
+                # Make stdout non-blocking
+                if not hasattr(self, '_stdout_set_nonblock'):
+                    flags = fcntl.fcntl(self.libcamera_stdout, fcntl.F_GETFL)
+                    fcntl.fcntl(self.libcamera_stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+                    self._stdout_set_nonblock = True
+                
+                try:
+                    data = self.libcamera_stdout.read(16384)  # Read more data
+                except BlockingIOError:
+                    # No data available yet
+                    if len(self.libcamera_buffer) > 0:
+                        # Try to parse what we have
+                        pass
+                    else:
+                        return None
+                
+                if data:
+                    self.libcamera_buffer.extend(data)
+                
+                # Keep buffer size reasonable (max 1MB)
+                if len(self.libcamera_buffer) > 1024 * 1024:
+                    self.libcamera_buffer = bytearray()
+                    return None
                 
                 # Find JPEG frame markers
                 start_marker = b'\xff\xd8'
                 end_marker = b'\xff\xd9'
                 
-                start_idx = self.libcamera_buffer.find(start_marker)
+                # Look for start marker
+                start_idx = -1
+                for i in range(len(self.libcamera_buffer) - 1):
+                    if self.libcamera_buffer[i] == 0xff and self.libcamera_buffer[i+1] == 0xd8:
+                        start_idx = i
+                        break
+                
                 if start_idx == -1:
-                    return None
+                    return None  # No frame start found
                 
                 # Remove data before start marker
                 if start_idx > 0:
                     self.libcamera_buffer = self.libcamera_buffer[start_idx:]
+                    start_idx = 0
                 
-                # Find end marker
-                end_idx = self.libcamera_buffer.find(end_marker, 2)
+                # Find end marker after start
+                end_idx = -1
+                for i in range(2, len(self.libcamera_buffer) - 1):
+                    if self.libcamera_buffer[i] == 0xff and self.libcamera_buffer[i+1] == 0xd9:
+                        end_idx = i + 2
+                        break
+                
                 if end_idx == -1:
-                    return None  # Need more data
+                    return None  # Need more data for complete frame
                 
                 # Extract frame
-                frame_data = bytes(self.libcamera_buffer[:end_idx + 2])
-                self.libcamera_buffer = self.libcamera_buffer[end_idx + 2:]
+                frame_data = bytes(self.libcamera_buffer[:end_idx])
+                self.libcamera_buffer = self.libcamera_buffer[end_idx:]
                 
                 # Decode JPEG
                 frame_array = np.frombuffer(frame_data, dtype=np.uint8)
@@ -299,6 +337,9 @@ class CameraQRReader:
                     return (frame, True)
                 return None
             except Exception as e:
+                # Reset buffer on error
+                if hasattr(self, 'libcamera_buffer'):
+                    self.libcamera_buffer = bytearray()
                 return None
         elif self.backend == 'picamera2' and self.picam2:
             try:
