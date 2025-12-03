@@ -356,9 +356,20 @@ The `printer.py` module provides thermal printer support for printing parking ti
 
 #### Printer Setup
 
-1. **Install python-escpos:**
+1. **Install system dependencies (Raspberry Pi/Linux):**
    ```bash
-   pip install python-escpos
+   sudo apt-get update
+   sudo apt-get install -y libusb-1.0-0-dev
+   ```
+
+2. **Install Python dependencies:**
+   ```bash
+   pip install python-escpos pyusb
+   ```
+   
+   Or install from requirements.txt:
+   ```bash
+   pip install -r requirements.txt
    ```
 
 2. **Connect printer:**
@@ -400,8 +411,14 @@ The `printer.py` module provides thermal printer support for printing parking ti
 - **Printer not detected:**
   - Check USB connection: `lsusb` should show the printer
   - Verify python-escpos is installed: `pip list | grep escpos`
+  - Verify pyusb is installed: `pip list | grep pyusb`
   - Try specifying vendor/product IDs manually via environment variables
   - Check application logs for printer initialization errors
+
+- **"USB library required" error:**
+  - Install system library: `sudo apt-get install libusb-1.0-0-dev`
+  - Install Python library: `pip install pyusb`
+  - Restart the application after installing dependencies
 
 - **Permission errors (Linux):**
   ```bash
