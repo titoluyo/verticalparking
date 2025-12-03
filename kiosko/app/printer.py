@@ -402,14 +402,15 @@ Cost: ${cost}
 ================================
 """
     
-    def print_entry_ticket(self, vehicle_plate: str, cabin_id: str, timestamp: Optional[str] = None, ticket_id: Optional[str] = None) -> bool:
+    def print_entry_ticket(self, vehicle_plate: str, cabin_id: str, timestamp: Optional[str] = None, ticket_id: Optional[str] = None, token: Optional[str] = None) -> bool:
         """Print entry ticket.
         
         Args:
             vehicle_plate: Vehicle license plate (not used in current design, kept for API compatibility)
             cabin_id: Cabin identifier
             timestamp: Entry timestamp (ISO format), defaults to current time
-            ticket_id: Unique ticket ID, defaults to generated UUID
+            ticket_id: Ticket ID to display on ticket (short version, e.g., first 8 chars)
+            token: Full token for QR code (if not provided, uses ticket_id)
             
         Returns:
             True if print succeeded (or simulated), False on error
@@ -423,12 +424,15 @@ Cost: ${cost}
         if ticket_id is None:
             ticket_id = str(uuid.uuid4())[:8].upper()
         
+        # Use token for QR code if provided, otherwise use ticket_id
+        qr_token = token if token else ticket_id
+        
         # Split timestamp into date and time
         entry_date = timestamp[:10] if len(timestamp) >= 10 else timestamp
         entry_hour = timestamp[11:19] if len(timestamp) >= 19 else ""
         
-        # QR code data (without vehicle plate for now)
-        qr_data = f"PARKING:{ticket_id}"
+        # QR code data - use full token for database lookup
+        qr_data = f"PARKING:{qr_token}"
         
         # Use 24 characters width for 80mm paper (safe width)
         WIDTH = 24

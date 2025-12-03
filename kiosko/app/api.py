@@ -7,6 +7,7 @@ import time
 
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
+from .database import cleanup_tickets, reset_cabins, cleanup_all
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -419,3 +420,79 @@ def print_exit_ticket():
             "error": "Failed to print exit ticket",
             "status": status
         }), 503
+
+
+@bp.route("/db/cleanup", methods=["POST"])
+def db_cleanup():
+    """Clean up database: delete tickets and/or reset cabins.
+    
+    This endpoint allows resetting the database to a clean state.
+    Requires confirmation in the request body to prevent accidental cleanup.
+    
+    Request body (JSON):
+    {
+        "confirm": true,  // Required: must be true to proceed
+        "tickets": true,  // Optional: delete all tickets (default: false)
+        "cabins": true,   // Optional: reset all cabins to 'free' (default: false)
+        "all": true       // Optional: cleanup everything (overrides tickets/cabins)
+    }
+    
+    Returns:
+        JSON with cleanup results
+    """
+    data = request.get_json() or {}
+    
+    # Require explicit confirmation
+    if not data.get("confirm") is True:
+        return jsonify({
+            "success": False,
+            "error": "Confirmation required. Set 'confirm': true in request body."
+        }), 400
+    
+    try:
+        cleanup_all_flag = data.get("all", False)
+        cleanup_tickets_flag = data.get("tickets", False)
+        cleanup_cabins_flag = data.get("cabins", False)
+        
+        # If 'all' is true, cleanup everything
+        if cleanup_all_flag:
+            result = cleanup_all()
+            current_app.logger.info(f"Database cleanup (all): {result}")
+            return jsonify({
+                "success": True,
+                "message": "Database cleaned up successfully",
+                "tickets_deleted": result["tickets_deleted"],
+                "cabins_reset": result["cabins_reset"]
+            }), 200
+        
+        # Otherwise, perform selective cleanup
+        tickets_count = 0
+        cabins_count = 0
+        
+        if cleanup_tickets_flag:
+            tickets_count = cleanup_tickets()
+            current_app.logger.info(f"Cleaned up {tickets_count} tickets")
+        
+        if cleanup_cabins_flag:
+            cabins_count = reset_cabins()
+            current_app.logger.info(f"Reset {cabins_count} cabins to 'free'")
+        
+        if not cleanup_tickets_flag and not cleanup_cabins_flag:
+            return jsonify({
+                "success": False,
+                "error": "No cleanup action specified. Set 'tickets': true, 'cabins': true, or 'all': true"
+            }), 400
+        
+        return jsonify({
+            "success": True,
+            "message": "Cleanup completed successfully",
+            "tickets_deleted": tickets_count,
+            "cabins_reset": cabins_count
+        }), 200
+        
+    except Exception as e:
+        current_app.logger.error(f"Error during database cleanup: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": f"Cleanup failed: {str(e)}"
+        }), 500

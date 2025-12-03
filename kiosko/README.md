@@ -205,7 +205,14 @@ This script:
 ### Web Routes
 
 - `GET /` - Landing page with presence indicator and main actions
-- `GET /guardar` - Store vehicle page
+- `GET /guardar` - Store vehicle page (form to confirm vehicle storage)
+- `POST /guardar` - Process vehicle storage
+  - Creates ticket with unique token
+  - Assigns vehicle to available cabin
+  - Prints entry ticket with QR code
+  - Updates cabin status to 'busy'
+  - Sets next free cabin as active
+  - Redirects to home page with success/error message
 - `GET /recoger` - Retrieve vehicle page
 
 ### REST API
@@ -226,6 +233,58 @@ This script:
     "status_detail": null,
     "connected": true,
     "updated_at": "2024-01-01T12:00:00Z"
+  }
+  ```
+
+- `GET /api/presence/stream` - Server-Sent Events (SSE) stream for real-time presence updates
+  - Returns continuous stream of presence status updates
+  - Automatically sends keepalive messages every 30 seconds
+  - Client should handle reconnection on disconnect
+
+- `GET /api/active-cabin` - Get the current active cabin ID
+  Response:
+  ```json
+  {
+    "active_cabin": "cabina-01"
+  }
+  ```
+
+- `POST /api/active-cabin` - Set the active cabin for vehicle entrance monitoring
+  Request body:
+  ```json
+  {
+    "cabin_id": "cabina-02"
+  }
+  ```
+  Response:
+  ```json
+  {
+    "active_cabin": "cabina-02",
+    "message": "Active cabin updated"
+  }
+  ```
+
+- `GET /api/sensors/cabins` - Get sensor status for multiple cabins
+  Query parameters:
+  - `start` (optional): Start cabin ID, default: `cabina-01`
+  - `end` (optional): End cabin ID, default: `cabina-07`
+  
+  Example: `GET /api/sensors/cabins?start=cabina-01&end=cabina-03`
+  
+  Response:
+  ```json
+  {
+    "cabins": {
+      "cabina-01": {
+        "entry": {"present": false, "ts": null},
+        "full": {"present": false, "ts": null}
+      },
+      "cabina-02": {
+        "entry": {"present": true, "ts": "2024-01-01T12:00:00Z"},
+        "full": {"present": false, "ts": null}
+      }
+    },
+    "timestamp": "2024-01-01T12:00:00Z"
   }
   ```
 
@@ -270,6 +329,104 @@ This script:
   }
   ```
 
+- `POST /api/db/cleanup` - Clean up database (delete tickets and/or reset cabins)
+  
+  **⚠️ Warning:** This endpoint permanently deletes data. Requires explicit confirmation.
+  
+  Request body options:
+  ```json
+  // Clean up everything
+  {
+    "confirm": true,
+    "all": true
+  }
+  
+  // Delete only tickets
+  {
+    "confirm": true,
+    "tickets": true
+  }
+  
+  // Reset only cabins to 'free'
+  {
+    "confirm": true,
+    "cabins": true
+  }
+  
+  // Both tickets and cabins
+  {
+    "confirm": true,
+    "tickets": true,
+    "cabins": true
+  }
+  ```
+  
+  Response:
+  ```json
+  {
+    "success": true,
+    "message": "Cleanup completed successfully",
+    "tickets_deleted": 5,
+    "cabins_reset": 7
+  }
+  ```
+  
+  Example usage:
+  ```bash
+  # Clean up everything
+  curl -X POST http://localhost:5000/api/db/cleanup \
+    -H "Content-Type: application/json" \
+    -d '{"confirm": true, "all": true}'
+  
+  # Reset only cabins
+  curl -X POST http://localhost:5000/api/db/cleanup \
+    -H "Content-Type: application/json" \
+    -d '{"confirm": true, "cabins": true}'
+  ```
+
+### Usage Examples
+
+#### Storing a Vehicle
+
+1. **Via Web UI:**
+   - Navigate to `/guardar` when vehicle is detected (state = "entered")
+   - Click "Confirmar y Guardar" button
+   - System will:
+     - Find available cabin
+     - Generate unique token
+     - Save ticket to database
+     - Print entry ticket with QR code
+     - Update cabin status to 'busy'
+     - Set next free cabin as active
+
+2. **Via API (for testing):**
+   ```bash
+   # Get active cabin
+   curl http://localhost:5000/api/active-cabin
+   
+   # Store vehicle (triggers print automatically)
+   curl -X POST http://localhost:5000/guardar
+   ```
+
+#### Database Management
+
+**View current state:**
+```bash
+# Check all cabins status (via database query)
+sqlite3 kiosko.db "SELECT * FROM cabinas;"
+
+# Check active tickets
+sqlite3 kiosko.db "SELECT * FROM tickets WHERE status='active';"
+```
+
+**Reset database:**
+```bash
+# Clean everything and start fresh
+curl -X POST http://localhost:5000/api/db/cleanup \
+  -H "Content-Type: application/json" \
+  -d '{"confirm": true, "all": true}'
+```
+
 ### Swagger Documentation
 
 Interactive API documentation is available at:
@@ -281,6 +438,9 @@ http://localhost:5000/apidocs/
 
 The application uses SQLite database (`kiosko.db`) with the following schema:
 
+### Tables
+
+**registros** (legacy table):
 ```sql
 CREATE TABLE registros (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -290,7 +450,38 @@ CREATE TABLE registros (
 )
 ```
 
-The database is automatically initialized on first run.
+**tickets** (parking tickets):
+```sql
+CREATE TABLE tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    cabina_id TEXT NOT NULL,
+    entry_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    exit_timestamp DATETIME,
+    vehicle_plate TEXT,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active', 'completed', 'cancelled'))
+)
+```
+
+**cabinas** (cabin status):
+```sql
+CREATE TABLE cabinas (
+    id TEXT PRIMARY KEY,
+    estado TEXT NOT NULL DEFAULT 'free' CHECK(estado IN ('free', 'busy')),
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+### Database Management
+
+The database is automatically initialized on first run with:
+- All tables created
+- Cabins 01-07 initialized with status 'free'
+- Indexes created for performance
+
+**Cleanup operations:**
+- Use `/api/db/cleanup` endpoint to reset data
+- See [Usage Examples > Database Management](#usage-examples) section for examples
 
 ## MQTT Integration
 
