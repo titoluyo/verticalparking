@@ -230,7 +230,7 @@ Cost: ${cost}
         """Print entry ticket.
         
         Args:
-            vehicle_plate: Vehicle license plate
+            vehicle_plate: Vehicle license plate (not used in current design, kept for API compatibility)
             cabin_id: Cabin identifier
             timestamp: Entry timestamp (ISO format), defaults to current time
             ticket_id: Unique ticket ID, defaults to generated UUID
@@ -246,6 +246,16 @@ Cost: ${cost}
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         if ticket_id is None:
             ticket_id = str(uuid.uuid4())[:8].upper()
+        
+        # Split timestamp into date and time
+        entry_date = timestamp[:10] if len(timestamp) >= 10 else timestamp
+        entry_hour = timestamp[11:19] if len(timestamp) >= 19 else ""
+        
+        # QR code data (without vehicle plate for now)
+        qr_data = f"PARKING:{ticket_id}"
+        
+        # Use 24 characters width for 80mm paper (safe width)
+        WIDTH = 24
         
         content = self._format_entry_ticket(vehicle_plate, cabin_id, timestamp, ticket_id)
         
@@ -268,33 +278,57 @@ Cost: ${cost}
                 except Exception:
                     pass  # Continue if encoding fails
                 
-                # Print entry ticket
-                self._printer.text("\n")
-                self._printer.set(align="center", bold=True, font="a")
-                self._printer.text("PARKING ENTRY TICKET\n")
-                self._printer.set(align="left", bold=False, font="a")
-                self._printer.text("=" * 32 + "\n")
-                self._printer.text(f"Vehicle: {vehicle_plate}\n")
-                self._printer.text(f"Cabin: {cabin_id}\n")
-                self._printer.text(f"Entry Time: {timestamp}\n")
-                self._printer.text(f"Ticket ID: {ticket_id}\n")
-                self._printer.text("=" * 32 + "\n")
-                self._printer.text("\n\n")
+                # Print entry ticket - Corporate with Boxes design
+                p = self._printer
+                p.text("\n\n")
+                p.set(align="center", bold=True, double_width=True)
+                p.text("VERTICAL PARKING\n")
+                p.set(align="center", bold=True, double_width=False)
+                p.text("Estacionamiento\n")
+                p.text("=" * WIDTH + "\n")
+                p.set(align="left", bold=False)
+                p.text("+" + "-" * (WIDTH - 2) + "+\n")
+                p.text("| TICKET DE INGRESO" + " " * (WIDTH - 20) + "|\n")
+                p.text("+" + "-" * (WIDTH - 2) + "+\n")
+                p.text(f"| Espacio:  {cabin_id:<{WIDTH-13}} |\n")
+                p.text(f"| Fecha:    {entry_date:<{WIDTH-13}} |\n")
+                p.text(f"| Hora:     {entry_hour:<{WIDTH-13}} |\n")
+                p.text(f"| Ticket:   {ticket_id:<{WIDTH-13}} |\n")
+                p.text("+" + "-" * (WIDTH - 2) + "+\n")
+                p.text("=" * WIDTH + "\n")
+                p.set(align="center")
+                p.text("CÓDIGO QR\n")
+                p.qr(qr_data, size=10, ec=3)
+                p.text("\n")
+                p.set(align="center", bold=False)
+                p.text("-" * WIDTH + "\n")
+                p.set(align="center", bold=True)
+                p.text("INSTRUCCIONES\n")
+                p.set(align="left", bold=False)
+                p.text("1. Conserve este ticket\n")
+                p.text("2. Escanea el código QR\n")
+                p.text("3. Retire su vehículo\n")
+                p.text("-" * WIDTH + "\n")
+                p.set(align="center", bold=False)
+                p.text("Gracias por usar\n")
+                p.text("nuestro servicio\n")
+                p.text("=" * WIDTH + "\n")
+                p.text("\n\n\n")
                 
                 # Try to cut paper
                 try:
-                    self._printer.cut()
+                    p.cut()
                 except Exception:
-                    self._printer.text("\n\n\n")
+                    p.text("\n\n\n")
                 
                 # Close connection if needed
-                if hasattr(self._printer, 'close'):
+                if hasattr(p, 'close'):
                     try:
-                        self._printer.close()
+                        p.close()
                     except Exception:
                         pass
                 
-                self.logger.info("Entry ticket printed: vehicle=%s, cabin=%s, ticket_id=%s", vehicle_plate, cabin_id, ticket_id)
+                self.logger.info("Entry ticket printed: cabin=%s, ticket_id=%s", cabin_id, ticket_id)
                 return True
             except EscposError as e:
                 self.logger.error("Printer error while printing entry ticket: %s", e, exc_info=True)
