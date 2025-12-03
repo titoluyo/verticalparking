@@ -9,7 +9,7 @@
     <div id="camera-status" class="camera-status">
       <span id="status-text">Iniciando cámara...</span>
     </div>
-    <img id="camera-stream" src="{{ url_for('api.camera_stream') }}" alt="Camera stream" style="display: none;" />
+    <img id="camera-stream" src="{{ url_for('api.camera_stream') }}" alt="Camera stream" />
     <div id="camera-error" class="error-message" style="display: none;">
       <p>Error: No se pudo acceder a la cámara</p>
       <p class="error-detail"></p>
@@ -64,17 +64,24 @@
   // Check camera status on load
   function checkCameraStatus() {
     fetch('/api/camera/status')
-      .then(response => response.json())
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response.json();
+      })
       .then(data => {
+        console.log('Camera status:', data);
         if (data.available) {
           statusText.textContent = 'Cámara lista - Escanea tu ticket';
           cameraStream.style.display = 'block';
           cameraError.style.display = 'none';
-          startQRScanning();
         } else {
           statusText.textContent = 'Cámara no disponible';
-          cameraError.querySelector('.error-detail').textContent = data.error || 'Cámara no configurada';
+          const errorMsg = data.error || `Backend: ${data.backend || 'unknown'}, Enabled: ${data.enabled}`;
+          cameraError.querySelector('.error-detail').textContent = errorMsg;
           cameraError.style.display = 'block';
+          cameraStream.style.display = 'none';
         }
       })
       .catch(error => {
@@ -82,6 +89,7 @@
         statusText.textContent = 'Error al verificar cámara';
         cameraError.querySelector('.error-detail').textContent = error.message;
         cameraError.style.display = 'block';
+        cameraStream.style.display = 'none';
       });
   }
   
@@ -202,13 +210,26 @@
   
   // Handle camera stream load
   cameraStream.addEventListener('load', () => {
+    console.log('Camera stream loaded');
     statusText.textContent = 'Cámara lista - Escanea tu ticket';
+    cameraError.style.display = 'none';
   });
   
-  cameraStream.addEventListener('error', () => {
-    statusText.textContent = 'Error al cargar video';
+  cameraStream.addEventListener('error', (e) => {
+    console.error('Camera stream error:', e);
+    statusText.textContent = 'Error al cargar video stream';
+    cameraError.querySelector('.error-detail').textContent = 'No se pudo conectar al stream de la cámara. Verifica que la cámara esté disponible.';
     cameraError.style.display = 'block';
+    cameraStream.style.display = 'none';
   });
+  
+  // Also check if stream fails to load after a timeout
+  setTimeout(() => {
+    if (cameraStream.complete === false || cameraStream.naturalWidth === 0) {
+      console.warn('Camera stream did not load within timeout');
+      statusText.textContent = 'Esperando stream de cámara...';
+    }
+  }, 3000);
   
   // Initialize
   checkCameraStatus();

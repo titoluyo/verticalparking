@@ -443,30 +443,59 @@ def camera_status():
 def camera_stream():
     """MJPEG video stream from camera for QR code scanning."""
     if not CV2_AVAILABLE:
-        return jsonify({"error": "opencv-python not available"}), 503
+        current_app.logger.error("opencv-python not available for camera stream")
+        return _generate_error_frame("OpenCV no disponible"), 503
     
     service = current_app.config.get("CAMERA_SERVICE")
     if not service:
-        return jsonify({"error": "camera service unavailable"}), 503
+        current_app.logger.error("Camera service not configured")
+        return _generate_error_frame("Servicio de cámara no configurado"), 503
     
-    # Ensure camera is started
+    # Check status first
+    status = service.get_status()
+    if not status.get("enabled", True):
+        current_app.logger.warning("Camera service is disabled")
+        return _generate_error_frame("Cámara deshabilitada"), 503
+    
+    # Try to start camera
     if not service.start():
-        return jsonify({"error": "Failed to start camera"}), 503
+        current_app.logger.error("Failed to start camera")
+        return _generate_error_frame("No se pudo iniciar la cámara"), 503
     
     def generate():
         """Generate MJPEG frames."""
+        frame_count = 0
+        error_count = 0
+        max_errors = 10
+        
         try:
             while True:
                 result = service.read_frame()
                 if result is None:
-                    # No frame available, send a placeholder or wait
-                    time.sleep(0.1)
+                    error_count += 1
+                    if error_count > max_errors:
+                        current_app.logger.warning("Too many failed frame reads, sending error frame")
+                        yield _generate_error_frame_bytes("No se pueden leer frames de la cámara")
+                        time.sleep(1)
+                        error_count = 0
+                    else:
+                        time.sleep(0.1)
                     continue
                 
                 frame, success = result
                 if not success or frame is None:
-                    time.sleep(0.1)
+                    error_count += 1
+                    if error_count > max_errors:
+                        yield _generate_error_frame_bytes("Frame inválido")
+                        time.sleep(1)
+                        error_count = 0
+                    else:
+                        time.sleep(0.1)
                     continue
+                
+                # Reset error count on successful frame
+                error_count = 0
+                frame_count += 1
                 
                 # Detect QR codes and draw overlay
                 qr_codes = service.detect_qr_codes(frame)
@@ -490,16 +519,91 @@ def camera_stream():
                 
                 # Small delay to control frame rate
                 time.sleep(0.05)  # ~20 FPS
+                
+                # Log every 100 frames for debugging
+                if frame_count % 100 == 0:
+                    current_app.logger.debug(f"Camera stream: {frame_count} frames sent")
         except GeneratorExit:
             # Client disconnected
-            pass
+            current_app.logger.info("Camera stream client disconnected")
         except Exception as e:
-            current_app.logger.error(f"Error in camera stream: {e}")
+            current_app.logger.error(f"Error in camera stream: {e}", exc_info=True)
+            try:
+                yield _generate_error_frame_bytes(f"Error: {str(e)}")
+            except:
+                pass
     
     return Response(
         stream_with_context(generate()),
         mimetype='multipart/x-mixed-replace; boundary=frame'
     )
+
+
+def _generate_error_frame(message: str):
+    """Generate a simple error frame as JPEG."""
+    if not CV2_AVAILABLE:
+        # Return a simple text response if OpenCV is not available
+        return Response(
+            f"Error: {message}",
+            mimetype='text/plain',
+            status=503
+        )
+    
+    # Create a simple error image
+    try:
+        import numpy as np
+    except ImportError:
+        return Response(
+            f"Error: {message} (numpy not available)",
+            mimetype='text/plain',
+            status=503
+        )
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    img.fill(50)  # Dark gray background
+    
+    # Add text
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text = message
+    text_size = cv2.getTextSize(text, font, 1, 2)[0]
+    text_x = (640 - text_size[0]) // 2
+    text_y = (480 + text_size[1]) // 2
+    cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2)
+    
+    # Encode as JPEG
+    ret, jpeg = cv2.imencode('.jpg', img)
+    if ret:
+        return Response(
+            b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n',
+            mimetype='multipart/x-mixed-replace; boundary=frame'
+        )
+    else:
+        return Response("Error generating frame", status=503)
+
+
+def _generate_error_frame_bytes(message: str) -> bytes:
+    """Generate error frame bytes for streaming."""
+    if not CV2_AVAILABLE:
+        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError: ' + message.encode() + b'\r\n'
+    
+    try:
+        import numpy as np
+    except ImportError:
+        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError: numpy not available\r\n'
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    img.fill(50)
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    text = message
+    text_size = cv2.getTextSize(text, font, 1, 2)[0]
+    text_x = (640 - text_size[0]) // 2
+    text_y = (480 + text_size[1]) // 2
+    cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2)
+    
+    ret, jpeg = cv2.imencode('.jpg', img)
+    if ret:
+        return b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
+    else:
+        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError\r\n'
 
 
 @bp.route("/camera/scan", methods=["POST"])
