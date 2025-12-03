@@ -22,30 +22,53 @@ echo "Installing system dependencies..."
 sudo apt install -y \
     python3-opencv \
     libzbar0 \
-    libcap-dev \
     python3-dev \
     build-essential \
-    python3-pip
+    python3-pip \
+    v4l-utils
 
 echo ""
 echo "✓ System dependencies installed"
 echo ""
 
+# Check camera access
+echo "Checking camera access..."
+if [ -e /dev/video0 ] || [ -e /dev/video1 ]; then
+    echo "✓ Camera device found"
+    ls -l /dev/video* 2>/dev/null || true
+else
+    echo "⚠ No camera device found at /dev/video*"
+    echo "  Make sure camera is connected"
+fi
+
+echo ""
+
+# Note: picamera2 is optional - OpenCV works fine with Raspberry Pi camera
+echo "Note: picamera2 is optional. OpenCV can access the camera directly."
+echo "If you want to install picamera2 (may require libcap-dev):"
+echo "  sudo apt install -y libcap-dev"
+echo "  pip install picamera2"
+echo ""
+
 # Check if virtual environment is active
 if [ -z "$VIRTUAL_ENV" ]; then
     echo "Warning: Virtual environment not active"
-    echo "Activate your venv and run: pip install picamera2"
+    echo "Activate your venv and run: pip install -r requirements.txt"
 else
-    echo "Installing picamera2 in virtual environment..."
-    pip install picamera2
-    echo "✓ picamera2 installed"
+    echo "Installing Python dependencies (picamera2 is optional)..."
+    pip install opencv-python pyzbar
+    echo "✓ Basic camera dependencies installed"
+    echo ""
+    echo "Optional: Install picamera2 (if needed):"
+    echo "  sudo apt install -y libcap-dev"
+    echo "  pip install picamera2"
 fi
 
 echo ""
 echo "Installation complete!"
 echo ""
-echo "Next steps:"
-echo "1. Enable camera: sudo raspi-config → Interface Options → Camera → Enable"
-echo "2. Reboot if you enabled the camera"
-echo "3. Test with: python test_camera_qr.py"
+echo "Test the camera:"
+echo "  python test_camera_qr.py"
+echo ""
+echo "The script uses OpenCV which works with the Raspberry Pi camera via V4L2."
 

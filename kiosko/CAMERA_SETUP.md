@@ -21,18 +21,19 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y \
     python3-opencv \
     libzbar0 \
-    libcap-dev \
     python3-dev \
-    build-essential
+    build-essential \
+    v4l-utils
 
-# Install picamera2 via pip (after system dependencies)
-# Note: python3-picamera2 from apt may be outdated, pip version is recommended
-pip install picamera2
+# Note: picamera2 is optional - OpenCV works fine with Raspberry Pi camera
+# The test script uses OpenCV which accesses the camera via V4L2
+# If you want picamera2 (optional), install libcap-dev first:
+#   sudo apt install -y libcap-dev
+#   pip install picamera2
 
-# Enable camera interface (if not already enabled)
-sudo raspi-config
-# Navigate to: Interface Options → Camera → Enable
-# Reboot after enabling
+# Camera should already be enabled in recent Raspberry Pi OS versions
+# Test camera with: rpicam-hello
+# If camera doesn't work, check: ls -l /dev/video*
 ```
 
 **On Windows:**
@@ -59,13 +60,17 @@ pip install picamera2
 ```
 
 This will install:
-- `opencv-python` - Camera and image processing
+- `opencv-python` - Camera and image processing (works with Raspberry Pi camera via V4L2)
 - `pyzbar` - QR code detection
-- `picamera2` - Raspberry Pi camera interface (optional, Linux only)
+- `picamera2` - Raspberry Pi camera interface (optional, not required)
 
-**Note:** If you get an error about `libcap-dev` when installing `picamera2`, run:
+**Important:** The test script uses OpenCV by default, which works perfectly with the Raspberry Pi camera. You don't need `picamera2` unless you specifically want to use it.
+
+**If you want picamera2 (optional):**
 ```bash
-sudo apt install -y libcap-dev python3-dev build-essential
+# Install system dependency first
+sudo apt install -y libcap-dev
+# Then install picamera2
 pip install picamera2
 ```
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
 Test script for Raspberry Pi camera QR code reading.
-Works on both Raspberry Pi (with official camera) and Windows (with webcam).
+Works on both Raspberry Pi (with official camera via OpenCV/V4L2) and Windows (with webcam).
+
+The script uses OpenCV which can access the Raspberry Pi camera directly via V4L2.
+No need for picamera2 - it's optional and has build dependencies.
 
 Usage:
     python test_camera_qr.py
@@ -49,17 +52,23 @@ except Exception as e:
 
 def detect_camera_backend() -> str:
     """Detect which camera backend to use."""
-    if PICAMERA2_AVAILABLE and platform.system() == "Linux":
-        # Check if we're on Raspberry Pi
-        try:
-            with open('/proc/cpuinfo', 'r') as f:
-                if 'Raspberry Pi' in f.read():
-                    return 'picamera2'
-        except:
-            pass
-    
-    # Fallback to OpenCV (works on Windows and Linux with USB cameras)
+    # For now, always use OpenCV as it's more reliable and works with rpicam
+    # OpenCV can access the camera via V4L2 on Raspberry Pi
+    # picamera2 can be used later if needed, but requires python-prctl which has build issues
     return 'opencv'
+    
+    # Original picamera2 detection (commented out due to python-prctl build issues)
+    # if PICAMERA2_AVAILABLE and platform.system() == "Linux":
+    #     # Check if we're on Raspberry Pi
+    #     try:
+    #         with open('/proc/cpuinfo', 'r') as f:
+    #             if 'Raspberry Pi' in f.read():
+    #                 return 'picamera2'
+    #     except:
+    #         pass
+    
+    # # Fallback to OpenCV (works on Windows and Linux with USB cameras)
+    # return 'opencv'
 
 
 class CameraQRReader:
@@ -93,11 +102,28 @@ class CameraQRReader:
                 print("  Falling back to OpenCV...")
                 self.backend = 'opencv'
         
-        # OpenCV backend (USB webcam or fallback)
+        # OpenCV backend (works with Raspberry Pi camera via V4L2)
+        # On Raspberry Pi, the camera appears as /dev/video0 or /dev/video1
         try:
-            self.camera = cv2.VideoCapture(self.camera_index)
-            if not self.camera.isOpened():
-                print(f"✗ Failed to open camera {self.camera_index}")
+            # Try different camera indices (0, 1, etc.)
+            for idx in range(3):  # Try indices 0, 1, 2
+                self.camera = cv2.VideoCapture(idx)
+                if self.camera.isOpened():
+                    # Test if we can read a frame
+                    ret, test_frame = self.camera.read()
+                    if ret:
+                        self.camera_index = idx
+                        break
+                    else:
+                        self.camera.release()
+                else:
+                    if self.camera:
+                        self.camera.release()
+            
+            if not self.camera or not self.camera.isOpened():
+                print(f"✗ Failed to open camera (tried indices 0-2)")
+                print("  Make sure camera is connected and accessible")
+                print("  On Raspberry Pi, check with: ls -l /dev/video*")
                 return False
             
             # Set resolution
@@ -107,7 +133,7 @@ class CameraQRReader:
             # Get actual resolution
             actual_width = int(self.camera.get(cv2.CAP_PROP_FRAME_WIDTH))
             actual_height = int(self.camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print(f"✓ Camera opened (resolution: {actual_width}x{actual_height})")
+            print(f"✓ Camera opened (index: {self.camera_index}, resolution: {actual_width}x{actual_height})")
             return True
         except Exception as e:
             print(f"✗ Failed to open camera: {e}")
