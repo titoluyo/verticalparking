@@ -109,6 +109,7 @@ class PrinterService:
                     # Fallback: Try a few common thermal printer vendor/product IDs
                     # Note: Cashino KP-300 may use different IDs - user should specify via env vars
                     common_ids = [
+                        (0x0fe6, 0x811e),  # ICS Advent Parallel Adapter (Cashino KP-300 via adapter)
                         (0x04f9, 0x2016),  # Brother QL-710W
                         (0x04f9, 0x2042),  # Brother QL-820NWB
                         (0x04f9, 0x2043),  # Brother QL-1050
@@ -254,26 +255,56 @@ Cost: ${cost}
                 return True
             
             try:
-                # Set encoding and print
-                self._printer.set(align="center", font="a", bold=True)
+                # Ensure printer connection is open
+                if hasattr(self._printer, 'open'):
+                    try:
+                        self._printer.open()
+                    except Exception:
+                        pass  # Already open or doesn't need explicit open
+                
+                # Print entry ticket
+                self._printer.text("\n")
                 self._printer.text("PARKING ENTRY TICKET\n")
-                self._printer.set(align="left", font="a", bold=False)
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text(f"Vehicle: {vehicle_plate}\n")
                 self._printer.text(f"Cabin: {cabin_id}\n")
                 self._printer.text(f"Entry Time: {timestamp}\n")
                 self._printer.text(f"Ticket ID: {ticket_id}\n")
                 self._printer.text("=" * 32 + "\n")
-                self._printer.cut()
+                self._printer.text("\n\n")
+                
+                # Try to cut paper
+                try:
+                    self._printer.cut()
+                except Exception:
+                    self._printer.text("\n\n\n")
+                
+                # Close connection if needed
+                if hasattr(self._printer, 'close'):
+                    try:
+                        self._printer.close()
+                    except Exception:
+                        pass
+                
                 self.logger.info("Entry ticket printed: vehicle=%s, cabin=%s, ticket_id=%s", vehicle_plate, cabin_id, ticket_id)
                 return True
             except EscposError as e:
-                self.logger.error("Printer error while printing entry ticket: %s", e)
+                self.logger.error("Printer error while printing entry ticket: %s", e, exc_info=True)
                 self._status = "error"
                 self._status_detail = f"Print error: {str(e)}"
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
             except Exception as e:
-                self.logger.error("Unexpected error while printing entry ticket: %s", e)
+                self.logger.error("Unexpected error while printing entry ticket: %s", e, exc_info=True)
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
     
     def print_exit_ticket(self, vehicle_plate: str, entry_time: str, exit_time: str, duration: str, cost: str) -> bool:
@@ -301,10 +332,16 @@ Cost: ${cost}
                 return True
             
             try:
-                # Set encoding and print
-                self._printer.set(align="center", font="a", bold=True)
+                # Ensure printer connection is open
+                if hasattr(self._printer, 'open'):
+                    try:
+                        self._printer.open()
+                    except Exception:
+                        pass  # Already open or doesn't need explicit open
+                
+                # Print exit ticket
+                self._printer.text("\n")
                 self._printer.text("PARKING EXIT TICKET\n")
-                self._printer.set(align="left", font="a", bold=False)
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text(f"Vehicle: {vehicle_plate}\n")
                 self._printer.text(f"Entry Time: {entry_time}\n")
@@ -312,16 +349,40 @@ Cost: ${cost}
                 self._printer.text(f"Duration: {duration}\n")
                 self._printer.text(f"Cost: ${cost}\n")
                 self._printer.text("=" * 32 + "\n")
-                self._printer.cut()
+                self._printer.text("\n\n")
+                
+                # Try to cut paper
+                try:
+                    self._printer.cut()
+                except Exception:
+                    self._printer.text("\n\n\n")
+                
+                # Close connection if needed
+                if hasattr(self._printer, 'close'):
+                    try:
+                        self._printer.close()
+                    except Exception:
+                        pass
+                
                 self.logger.info("Exit ticket printed: vehicle=%s, cost=%s", vehicle_plate, cost)
                 return True
             except EscposError as e:
-                self.logger.error("Printer error while printing exit ticket: %s", e)
+                self.logger.error("Printer error while printing exit ticket: %s", e, exc_info=True)
                 self._status = "error"
                 self._status_detail = f"Print error: {str(e)}"
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
             except Exception as e:
-                self.logger.error("Unexpected error while printing exit ticket: %s", e)
+                self.logger.error("Unexpected error while printing exit ticket: %s", e, exc_info=True)
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
     
     def print_test(self) -> bool:
@@ -350,23 +411,56 @@ Time: {time}
                 return True
             
             try:
-                self._printer.set(align="center", font="a", bold=True)
+                # Ensure printer connection is open
+                if hasattr(self._printer, 'open'):
+                    try:
+                        self._printer.open()
+                    except Exception:
+                        pass  # Already open or doesn't need explicit open
+                
+                # Try simple text first (more compatible)
+                self._printer.text("\n")
                 self._printer.text("PRINTER TEST TICKET\n")
-                self._printer.set(align="left", font="a", bold=False)
                 self._printer.text("=" * 32 + "\n")
                 self._printer.text("This is a test print from\n")
                 self._printer.text("the Kiosko parking system.\n")
                 self._printer.text(f"Time: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
                 self._printer.text("=" * 32 + "\n")
-                self._printer.cut()
+                self._printer.text("\n\n")
+                
+                # Try to cut paper (may fail on some printers)
+                try:
+                    self._printer.cut()
+                except Exception as cut_error:
+                    self.logger.warning("Paper cut failed (may not be supported): %s", cut_error)
+                    # Send line feeds instead
+                    self._printer.text("\n\n\n")
+                
+                # Close connection if needed
+                if hasattr(self._printer, 'close'):
+                    try:
+                        self._printer.close()
+                    except Exception:
+                        pass
+                
                 self.logger.info("Test ticket printed successfully")
                 return True
             except EscposError as e:
-                self.logger.error("Printer error while printing test ticket: %s", e)
+                self.logger.error("Printer error while printing test ticket: %s", e, exc_info=True)
                 self._status = "error"
                 self._status_detail = f"Print error: {str(e)}"
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
             except Exception as e:
-                self.logger.error("Unexpected error while printing test ticket: %s", e)
+                self.logger.error("Unexpected error while printing test ticket: %s", e, exc_info=True)
+                try:
+                    if hasattr(self._printer, 'close'):
+                        self._printer.close()
+                except Exception:
+                    pass
                 return False
 
