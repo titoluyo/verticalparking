@@ -358,6 +358,15 @@ The `printer.py` module provides thermal printer support for printing parking ti
 
 **For Cashino KP-300 with ICS Advent Parallel Adapter (USB ID: 0fe6:811e)**
 
+**Quick Setup (Automated):**
+```bash
+cd ~/verticalparking/kiosko
+bash setup_printer.sh
+```
+Then **log out and log back in** for group membership to take effect.
+
+**Manual Setup:**
+
 1. **Install system dependencies:**
    ```bash
    sudo apt-get update
