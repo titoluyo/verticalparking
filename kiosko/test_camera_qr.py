@@ -17,6 +17,7 @@ import platform
 import time
 import subprocess
 import os
+import tempfile
 import numpy as np
 from typing import Optional, Tuple
 
@@ -110,7 +111,6 @@ class CameraQRReader:
                     return False
                 
                 # Create temporary file for frames
-                import tempfile
                 self.temp_frame_file = tempfile.NamedTemporaryFile(
                     suffix='.jpg', delete=False
                 )
@@ -173,7 +173,6 @@ class CameraQRReader:
         # On Raspberry Pi, the camera appears as /dev/video0 or /dev/video1
         try:
             # First, try to find available video devices
-            import os
             video_devices = []
             for i in range(10):
                 dev_path = f"/dev/video{i}"
