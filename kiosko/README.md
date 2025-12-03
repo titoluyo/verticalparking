@@ -9,7 +9,8 @@ The Kiosko application serves as the Point of Sale (POS) and monitoring interfac
 ## Features
 
 - **Real-time Sensor Monitoring**: Displays live parking space status from ESP32 sensors via MQTT
-- **Vehicle Management**: Interface for storing and retrieving vehicles (UI ready, database integration pending)
+- **Vehicle Management**: Interface for storing and retrieving vehicles with ticket printing
+- **QR Code Reading**: Camera-based QR code scanning for vehicle retrieval (Raspberry Pi camera support)
 - **REST API**: JSON API endpoints for frontend integration
 - **Swagger Documentation**: Interactive API documentation at `/apidocs/`
 - **Cross-platform**: Runs on Windows 11 and Raspberry Pi OS
@@ -42,6 +43,8 @@ kiosko/
 │   └── app.log
 ├── app.py                 # Main entry point
 ├── requirements.txt       # Python dependencies
+├── test_camera_qr.py      # Camera QR code reader test script
+├── CAMERA_SETUP.md        # Camera setup and testing guide
 ├── start_kiosko.sh        # Linux/Raspberry Pi startup script
 └── start_kiosk.ps1        # Windows PowerShell startup script
 ```
@@ -743,6 +746,16 @@ Run tests (when available):
 pytest
 ```
 
+### Camera Testing
+
+Test the Raspberry Pi camera for QR code reading:
+```bash
+# Install dependencies first (see CAMERA_SETUP.md)
+python test_camera_qr.py
+```
+
+See [`CAMERA_SETUP.md`](CAMERA_SETUP.md) for detailed camera setup instructions.
+
 ### Logging
 
 Logs are written to:
@@ -756,6 +769,9 @@ Logs are written to:
 - **paho-mqtt** (>=1.6): MQTT client library
 - **python-escpos** (>=3.0.0): Thermal printer support (ESC/POS protocol)
 - **pyusb** (>=1.2.0): USB device access for thermal printers (required for USB connection)
+- **opencv-python** (>=4.8.0): Camera and image processing for QR code reading
+- **pyzbar** (>=0.1.9): QR code and barcode detection
+- **picamera2** (>=0.3.12): Raspberry Pi camera interface (Linux only)
 
 ## Related Components
 
