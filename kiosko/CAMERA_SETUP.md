@@ -17,12 +17,22 @@ This guide explains how to set up and test the Raspberry Pi camera for QR code r
 # Update system
 sudo apt update && sudo apt upgrade -y
 
-# Install camera libraries and QR code dependencies
-sudo apt install -y python3-picamera2 python3-opencv libzbar0
+# Install system dependencies for camera and QR code libraries
+sudo apt install -y \
+    python3-opencv \
+    libzbar0 \
+    libcap-dev \
+    python3-dev \
+    build-essential
+
+# Install picamera2 via pip (after system dependencies)
+# Note: python3-picamera2 from apt may be outdated, pip version is recommended
+pip install picamera2
 
 # Enable camera interface (if not already enabled)
 sudo raspi-config
 # Navigate to: Interface Options → Camera → Enable
+# Reboot after enabling
 ```
 
 **On Windows:**
@@ -31,6 +41,8 @@ sudo raspi-config
 
 ### 2. Install Python Dependencies
 
+**Important:** On Raspberry Pi, install system dependencies first (see step 1 above).
+
 ```bash
 # Activate virtual environment
 cd kiosko
@@ -38,14 +50,24 @@ source .venv/bin/activate  # Linux/Mac
 # or
 .venv\Scripts\activate     # Windows
 
-# Install dependencies
+# Install basic dependencies (picamera2 is optional)
 pip install -r requirements.txt
+
+# On Raspberry Pi only, install picamera2 separately (after system deps)
+# This avoids build errors if system dependencies are missing
+pip install picamera2
 ```
 
 This will install:
 - `opencv-python` - Camera and image processing
 - `pyzbar` - QR code detection
-- `picamera2` - Raspberry Pi camera interface (Linux only)
+- `picamera2` - Raspberry Pi camera interface (optional, Linux only)
+
+**Note:** If you get an error about `libcap-dev` when installing `picamera2`, run:
+```bash
+sudo apt install -y libcap-dev python3-dev build-essential
+pip install picamera2
+```
 
 ## Testing the Camera
 

@@ -10,7 +10,6 @@ from PIL import Image
 
 p = None
 try:
-    """
     print("=" * 50)
     print("Printer Capability Test")
     print("=" * 50)
@@ -18,6 +17,7 @@ try:
     p = Usb(0x0fe6, 0x811e)
     print("Printer connected successfully\n")
 
+    """
     # Test 1: Basic Text
     print("[TEST 1] Basic Text")
     p.text("=" * 32 + "\n")

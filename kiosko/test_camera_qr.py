@@ -37,6 +37,13 @@ try:
     PICAMERA2_AVAILABLE = True
 except ImportError:
     # Not on Raspberry Pi or picamera2 not installed
+    # This is OK - will fall back to OpenCV
+    pass
+except Exception as e:
+    # picamera2 installed but not working (e.g., missing system dependencies)
+    print(f"Warning: picamera2 import failed: {e}")
+    print("  Will fall back to OpenCV. Install system dependencies:")
+    print("  sudo apt install -y libcap-dev python3-dev build-essential")
     pass
 
 
