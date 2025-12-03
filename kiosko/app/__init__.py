@@ -9,6 +9,7 @@ from .database import init_db
 from .routes import bp as routes_bp
 from .api import bp as api_bp
 from .presence import presence_service_from_env
+from .printer import PrinterService
 
 
 def create_app() -> Flask:
@@ -43,6 +44,18 @@ def create_app() -> Flask:
         # Keep app running even if MQTT is misconfigured; surface via API later.
         app.logger.warning("Presence service not started: %s", exc)
         app.config["PRESENCE_SERVICE"] = None
+    
+    # Printer service (thermal printer for tickets)
+    try:
+        app.logger.info("Initializing printer service...")
+        printer_service = PrinterService.from_env(app.logger)
+        app.config["PRINTER_SERVICE"] = printer_service
+        status = printer_service.get_status()
+        app.logger.info("Printer service initialized: status=%s, available=%s", status["status"], status["available"])
+    except Exception as exc:
+        # Keep app running even if printer is unavailable; surface via API later.
+        app.logger.warning("Printer service not initialized: %s", exc)
+        app.config["PRINTER_SERVICE"] = None
 
     # Blueprints
     app.register_blueprint(routes_bp)

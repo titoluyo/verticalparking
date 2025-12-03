@@ -296,3 +296,129 @@ def check_cabin_sensors():
         except:
             pass
         return jsonify({"error": f"Failed to check sensors: {str(e)}"}), 500
+
+
+@bp.route("/printer/status", methods=["GET"])
+def printer_status():
+    """Get printer status information."""
+    service = current_app.config.get("PRINTER_SERVICE")
+    if not service:
+        return jsonify({"error": "printer service unavailable"}), 503
+    
+    status = service.get_status()
+    return jsonify(status)
+
+
+@bp.route("/printer/test", methods=["POST"])
+def printer_test():
+    """Print a test ticket."""
+    service = current_app.config.get("PRINTER_SERVICE")
+    if not service:
+        return jsonify({"error": "printer service unavailable"}), 503
+    
+    success = service.print_test()
+    if success:
+        return jsonify({"success": True, "message": "Test ticket printed successfully"}), 200
+    else:
+        status = service.get_status()
+        return jsonify({
+            "success": False,
+            "error": "Failed to print test ticket",
+            "status": status
+        }), 503
+
+
+@bp.route("/printer/entry-ticket", methods=["POST"])
+def print_entry_ticket():
+    """Print an entry ticket for a vehicle."""
+    service = current_app.config.get("PRINTER_SERVICE")
+    if not service:
+        return jsonify({"error": "printer service unavailable"}), 503
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+    
+    vehicle_plate = data.get("vehicle_plate")
+    cabin_id = data.get("cabin_id")
+    timestamp = data.get("timestamp")
+    ticket_id = data.get("ticket_id")
+    
+    if not vehicle_plate:
+        return jsonify({"error": "Missing required field: vehicle_plate"}), 400
+    if not cabin_id:
+        return jsonify({"error": "Missing required field: cabin_id"}), 400
+    
+    success = service.print_entry_ticket(
+        vehicle_plate=vehicle_plate,
+        cabin_id=cabin_id,
+        timestamp=timestamp,
+        ticket_id=ticket_id
+    )
+    
+    if success:
+        return jsonify({
+            "success": True,
+            "message": "Entry ticket printed successfully",
+            "vehicle_plate": vehicle_plate,
+            "cabin_id": cabin_id,
+            "ticket_id": ticket_id
+        }), 200
+    else:
+        status = service.get_status()
+        return jsonify({
+            "success": False,
+            "error": "Failed to print entry ticket",
+            "status": status
+        }), 503
+
+
+@bp.route("/printer/exit-ticket", methods=["POST"])
+def print_exit_ticket():
+    """Print an exit ticket for a vehicle."""
+    service = current_app.config.get("PRINTER_SERVICE")
+    if not service:
+        return jsonify({"error": "printer service unavailable"}), 503
+    
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Missing request body"}), 400
+    
+    vehicle_plate = data.get("vehicle_plate")
+    entry_time = data.get("entry_time")
+    exit_time = data.get("exit_time")
+    duration = data.get("duration")
+    cost = data.get("cost")
+    
+    if not vehicle_plate:
+        return jsonify({"error": "Missing required field: vehicle_plate"}), 400
+    if not entry_time:
+        return jsonify({"error": "Missing required field: entry_time"}), 400
+    if not exit_time:
+        return jsonify({"error": "Missing required field: exit_time"}), 400
+    if duration is None:
+        return jsonify({"error": "Missing required field: duration"}), 400
+    if cost is None:
+        return jsonify({"error": "Missing required field: cost"}), 400
+    
+    success = service.print_exit_ticket(
+        vehicle_plate=vehicle_plate,
+        entry_time=entry_time,
+        exit_time=exit_time,
+        duration=str(duration),
+        cost=str(cost)
+    )
+    
+    if success:
+        return jsonify({
+            "success": True,
+            "message": "Exit ticket printed successfully",
+            "vehicle_plate": vehicle_plate
+        }), 200
+    else:
+        status = service.get_status()
+        return jsonify({
+            "success": False,
+            "error": "Failed to print exit ticket",
+            "status": status
+        }), 503

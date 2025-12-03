@@ -145,6 +145,11 @@ The application can be configured using environment variables:
 | `KIOSKO_DEVICE_ID` | Device identifier | `"esp32-sensor"` |
 | `KIOSKO_TOPIC_ENTRY` | Entry sensor topic (override) | Auto-generated |
 | `KIOSKO_TOPIC_FULL` | Full sensor topic (override) | Auto-generated |
+| `KIOSKO_PRINTER_ENABLED` | Enable/disable printer | `true` |
+| `KIOSKO_PRINTER_VENDOR_ID` | USB vendor ID (hex, e.g., `0x04f9`) | Auto-detect |
+| `KIOSKO_PRINTER_PRODUCT_ID` | USB product ID (hex, e.g., `0x2016`) | Auto-detect |
+| `KIOSKO_PRINTER_SERIAL` | Serial port path (e.g., `/dev/ttyUSB0`) | None (use USB) |
+| `KIOSKO_PRINTER_BAUDRATE` | Serial baudrate | `9600` |
 
 **Fallback variables:** The app also checks `MQTT_BROKER`, `MQTT_PORT`, `MQTT_USER`, `MQTT_PASSWORD`, `TOPIC_BASE`, `SITE_ID`, and `DEVICE_ID` if the `KIOSKO_*` variants are not set.
 
@@ -224,6 +229,47 @@ This script:
   }
   ```
 
+- `GET /api/printer/status` - Get printer status
+  ```json
+  {
+    "available": true,
+    "status": "connected",
+    "status_detail": "USB auto-detected",
+    "enabled": true
+  }
+  ```
+
+- `POST /api/printer/test` - Print a test ticket
+  ```json
+  {
+    "success": true,
+    "message": "Test ticket printed successfully"
+  }
+  ```
+
+- `POST /api/printer/entry-ticket` - Print entry ticket
+  Request body:
+  ```json
+  {
+    "vehicle_plate": "ABC-123",
+    "cabin_id": "cabina-01",
+    "timestamp": "2024-01-01 12:00:00",
+    "ticket_id": "TKT001"
+  }
+  ```
+
+- `POST /api/printer/exit-ticket` - Print exit ticket
+  Request body:
+  ```json
+  {
+    "vehicle_plate": "ABC-123",
+    "entry_time": "2024-01-01 12:00:00",
+    "exit_time": "2024-01-01 14:30:00",
+    "duration": "2h 30m",
+    "cost": "15.50"
+  }
+  ```
+
 ### Swagger Documentation
 
 Interactive API documentation is available at:
@@ -300,6 +346,81 @@ The `hardware.py` module provides optional GPIO control:
 - Controls LED on GPIO 17 (2 seconds on)
 - Falls back to simulation on non-Linux platforms
 
+### Thermal Printer (Cashino KP-300)
+
+The `printer.py` module provides thermal printer support for printing parking tickets:
+- Supports USB and serial (RS232) connections
+- Automatic USB device detection
+- Graceful fallback to simulation mode when printer unavailable
+- Thread-safe printing operations
+
+#### Printer Setup
+
+1. **Install python-escpos:**
+   ```bash
+   pip install python-escpos
+   ```
+
+2. **Connect printer:**
+   - USB: Connect via USB cable to Raspberry Pi
+   - Serial: Connect via RS232 cable and configure `KIOSKO_PRINTER_SERIAL`
+
+3. **Find USB device IDs (if needed):**
+   ```bash
+   # List USB devices
+   lsusb
+   
+   # Look for your printer, note vendor and product IDs
+   # Example output: Bus 001 Device 005: ID 04f9:2016 Brother Industries, Ltd
+   # Vendor ID: 0x04f9, Product ID: 0x2016
+   ```
+
+4. **Configure printer (optional):**
+   ```bash
+   # Set USB vendor/product IDs if auto-detection fails
+   export KIOSKO_PRINTER_VENDOR_ID=0x04f9
+   export KIOSKO_PRINTER_PRODUCT_ID=0x2016
+   
+   # Or use serial connection
+   export KIOSKO_PRINTER_SERIAL=/dev/ttyUSB0
+   export KIOSKO_PRINTER_BAUDRATE=9600
+   
+   # Disable printer if needed
+   export KIOSKO_PRINTER_ENABLED=false
+   ```
+
+5. **Test printer:**
+   ```bash
+   # Test via API
+   curl -X POST http://localhost:5000/api/printer/test
+   ```
+
+#### Printer Troubleshooting
+
+- **Printer not detected:**
+  - Check USB connection: `lsusb` should show the printer
+  - Verify python-escpos is installed: `pip list | grep escpos`
+  - Try specifying vendor/product IDs manually via environment variables
+  - Check application logs for printer initialization errors
+
+- **Permission errors (Linux):**
+  ```bash
+  # Add user to dialout group for serial access
+  sudo usermod -a -G dialout $USER
+  # Log out and back in for changes to take effect
+  ```
+
+- **Printer in simulation mode:**
+  - This is normal if printer is not connected or unavailable
+  - Check printer status: `GET /api/printer/status`
+  - Simulation mode logs ticket content instead of printing
+
+- **Print quality issues:**
+  - Ensure 80mm thermal paper is loaded correctly
+  - Check paper roll diameter (max 150mm)
+  - Verify paper thickness (55-200μm)
+  - Clean print head if needed
+
 ## Troubleshooting
 
 ### MQTT Connection Issues
@@ -348,6 +469,7 @@ Logs are written to:
 - **Flask** (>=2.2): Web framework
 - **flasgger** (>=0.9.7.1): Swagger/OpenAPI documentation
 - **paho-mqtt** (>=1.6): MQTT client library
+- **python-escpos** (>=3.0.0): Thermal printer support (ESC/POS protocol)
 
 ## Related Components
 
