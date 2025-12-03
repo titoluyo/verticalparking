@@ -83,13 +83,17 @@ class PrinterService:
             if self.vendor_id and self.product_id:
                 try:
                     self._printer = Usb(self.vendor_id, self.product_id)
-                    self._available = True
-                    self._status = "connected"
-                    self._status_detail = f"USB (vendor=0x{self.vendor_id:04x}, product=0x{self.product_id:04x})"
-                    self.logger.info("Printer connected via USB: %s", self._status_detail)
-                    return
+                    if self._ensure_connection_open():
+                        self._available = True
+                        self._status = "connected"
+                        self._status_detail = f"USB (vendor=0x{self.vendor_id:04x}, product=0x{self.product_id:04x})"
+                        self.logger.info("Printer connected via USB: %s", self._status_detail)
+                        return
+                    else:
+                        self._printer = None
                 except Exception as e:
                     self.logger.warning("Failed to connect via USB with specified IDs: %s", e)
+                    self._printer = None
             
             # Try automatic USB detection (python-escpos can auto-detect)
             if not self.serial_port:
@@ -98,13 +102,17 @@ class PrinterService:
                     # This will find the first available USB printer
                     try:
                         self._printer = Usb()
-                        self._available = True
-                        self._status = "connected"
-                        self._status_detail = "USB auto-detected"
-                        self.logger.info("Printer connected via USB auto-detection")
-                        return
+                        if self._ensure_connection_open():
+                            self._available = True
+                            self._status = "connected"
+                            self._status_detail = "USB auto-detected"
+                            self.logger.info("Printer connected via USB auto-detection")
+                            return
+                        else:
+                            self._printer = None
                     except Exception as e:
                         self.logger.debug("USB auto-detection failed: %s", e)
+                        self._printer = None
                     
                     # Fallback: Try a few common thermal printer vendor/product IDs
                     # Note: Cashino KP-300 may use different IDs - user should specify via env vars
@@ -120,12 +128,16 @@ class PrinterService:
                     for vid, pid in common_ids:
                         try:
                             self._printer = Usb(vid, pid)
-                            self._available = True
-                            self._status = "connected"
-                            self._status_detail = f"USB auto-detected (vendor=0x{vid:04x}, product=0x{pid:04x})"
-                            self.logger.info("Printer connected via USB with common ID: %s", self._status_detail)
-                            return
+                            if self._ensure_connection_open():
+                                self._available = True
+                                self._status = "connected"
+                                self._status_detail = f"USB auto-detected (vendor=0x{vid:04x}, product=0x{pid:04x})"
+                                self.logger.info("Printer connected via USB with common ID: %s", self._status_detail)
+                                return
+                            else:
+                                self._printer = None
                         except Exception:
+                            self._printer = None
                             continue
                     
                     self.logger.warning("No USB printer found with auto-detection or common IDs")
@@ -153,6 +165,29 @@ class PrinterService:
             self._status = "error"
             self._status_detail = f"Initialization error: {str(e)}"
             self.logger.error("Printer initialization failed: %s", e)
+    
+    def _ensure_connection_open(self) -> bool:
+        """Ensure printer connection is opened and ready for use.
+        
+        For USB printers, accessing the device property triggers the connection
+        to be opened. This must be called after creating a printer object.
+        
+        Returns:
+            True if connection is open and ready, False otherwise
+        """
+        if not ESCPOS_AVAILABLE or self._printer is None:
+            return False
+        
+        try:
+            # For USB printers, accessing device property opens the connection
+            if hasattr(self._printer, 'device'):
+                # This will open the connection if not already open
+                _ = self._printer.device
+            # For serial printers, connection is opened on creation
+            return True
+        except (AttributeError, Exception) as e:
+            self.logger.debug("Failed to open printer connection: %s", e)
+            return False
     
     def _check_connection(self) -> bool:
         """Check if printer connection is healthy and reconnect if needed.
@@ -214,13 +249,17 @@ class PrinterService:
             if self.vendor_id and self.product_id:
                 try:
                     self._printer = Usb(self.vendor_id, self.product_id)
-                    self._available = True
-                    self._status = "connected"
-                    self._status_detail = f"USB (vendor=0x{self.vendor_id:04x}, product=0x{self.product_id:04x})"
-                    self.logger.info("Printer reconnected via USB: %s", self._status_detail)
-                    return True
+                    if self._ensure_connection_open():
+                        self._available = True
+                        self._status = "connected"
+                        self._status_detail = f"USB (vendor=0x{self.vendor_id:04x}, product=0x{self.product_id:04x})"
+                        self.logger.info("Printer reconnected via USB: %s", self._status_detail)
+                        return True
+                    else:
+                        self._printer = None
                 except Exception as e:
                     self.logger.debug("Reconnection via USB with specified IDs failed: %s", e)
+                    self._printer = None
             
             # Try automatic USB detection
             if not self.serial_port:
@@ -228,12 +267,16 @@ class PrinterService:
                     # Try auto-detection
                     try:
                         self._printer = Usb()
-                        self._available = True
-                        self._status = "connected"
-                        self._status_detail = "USB auto-detected"
-                        self.logger.info("Printer reconnected via USB auto-detection")
-                        return True
+                        if self._ensure_connection_open():
+                            self._available = True
+                            self._status = "connected"
+                            self._status_detail = "USB auto-detected"
+                            self.logger.info("Printer reconnected via USB auto-detection")
+                            return True
+                        else:
+                            self._printer = None
                     except Exception:
+                        self._printer = None
                         pass
                     
                     # Try common IDs
@@ -249,12 +292,16 @@ class PrinterService:
                     for vid, pid in common_ids:
                         try:
                             self._printer = Usb(vid, pid)
-                            self._available = True
-                            self._status = "connected"
-                            self._status_detail = f"USB auto-detected (vendor=0x{vid:04x}, product=0x{pid:04x})"
-                            self.logger.info("Printer reconnected via USB with common ID: %s", self._status_detail)
-                            return True
+                            if self._ensure_connection_open():
+                                self._available = True
+                                self._status = "connected"
+                                self._status_detail = f"USB auto-detected (vendor=0x{vid:04x}, product=0x{pid:04x})"
+                                self.logger.info("Printer reconnected via USB with common ID: %s", self._status_detail)
+                                return True
+                            else:
+                                self._printer = None
                         except Exception:
+                            self._printer = None
                             continue
                 except Exception:
                     pass
@@ -399,6 +446,12 @@ Cost: ${cost}
                 self._print_simulation(content)
                 return True
             
+            # Ensure connection is open before printing
+            if not self._ensure_connection_open():
+                self.logger.warning("Failed to open printer connection, using simulation mode")
+                self._print_simulation(content)
+                return True
+            
             try:
                 # Set encoding to CP850 for Spanish character support
                 try:
@@ -492,6 +545,12 @@ Cost: ${cost}
                 self._print_simulation(content)
                 return True
             
+            # Ensure connection is open before printing
+            if not self._ensure_connection_open():
+                self.logger.warning("Failed to open printer connection, using simulation mode")
+                self._print_simulation(content)
+                return True
+            
             try:
                 # Set encoding to CP850 for Spanish character support
                 try:
@@ -560,6 +619,12 @@ Time: {time}
             # Check connection health and reconnect if needed
             if not self._check_connection():
                 self.logger.warning("Printer connection unavailable, using simulation mode")
+                self._print_simulation(test_content)
+                return True
+            
+            # Ensure connection is open before printing
+            if not self._ensure_connection_open():
+                self.logger.warning("Failed to open printer connection, using simulation mode")
                 self._print_simulation(test_content)
                 return True
             
