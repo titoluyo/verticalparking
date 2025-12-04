@@ -46,18 +46,22 @@ class VideoStreamService:
         self._available = False
         self._width = 640
         self._height = 480
+        self._error_message = None
         
         if not enabled:
             self.logger.info("Video stream service disabled")
+            self._error_message = "Service disabled"
             return
         
         if not PICAMERA2_AVAILABLE:
             self.logger.warning("picamera2 not available - video streaming will not work")
+            self._error_message = "picamera2 not installed"
             return
         
         # Only initialize on Linux (Raspberry Pi)
         if platform.system() != "Linux":
             self.logger.info("Video streaming only available on Linux (Raspberry Pi)")
+            self._error_message = "Only available on Linux (Raspberry Pi)"
             return
         
         self._init_camera()
@@ -86,6 +90,7 @@ class VideoStreamService:
         except Exception as e:
             self.logger.error(f"Failed to initialize video stream: {e}", exc_info=True)
             self._available = False
+            self._error_message = f"Initialization failed: {str(e)}"
             return False
     
     @classmethod
@@ -105,11 +110,26 @@ class VideoStreamService:
     
     def get_status(self) -> dict:
         """Get video stream status."""
-        return {
+        status = {
             "available": self._available,
             "enabled": self.enabled,
             "resolution": f"{self._width}x{self._height}" if self._available else None
         }
+        
+        # Add diagnostic information
+        if not self._available and self._error_message:
+            status["error"] = self._error_message
+        elif not self._available:
+            if not PICAMERA2_AVAILABLE:
+                status["error"] = "picamera2 not installed"
+            elif platform.system() != "Linux":
+                status["error"] = "Only available on Linux (Raspberry Pi)"
+            elif not self.enabled:
+                status["error"] = "Service disabled"
+            else:
+                status["error"] = "Camera initialization failed - check logs"
+        
+        return status
     
     def stop(self) -> None:
         """Stop video streaming."""

@@ -443,11 +443,17 @@ def camera_status():
         available = False
         current_app.logger.warning("VideoStreamService not found in config")
     
-    return jsonify({
+    response = {
         "video_stream": video_status,
         "available": available,
         "enabled": video_status.get("enabled", False) if video_status else False
-    })
+    }
+    
+    # Include error message if available
+    if video_status and "error" in video_status:
+        response["error"] = video_status["error"]
+    
+    return jsonify(response)
 
 
 @bp.route("/camera/stream", methods=["GET"])
