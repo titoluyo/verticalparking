@@ -11,6 +11,8 @@ from .api import bp as api_bp
 from .presence import presence_service_from_env
 from .printer import PrinterService
 from .video_stream import VideoStreamService
+from .qr_detector import QRDetector
+from .qr_detector import QRDetector
 
 
 def create_app() -> Flask:
@@ -76,6 +78,19 @@ def create_app() -> Flask:
         # Keep app running even if video stream is unavailable; surface via API later.
         app.logger.error("Video stream service not initialized: %s", exc, exc_info=True)
         app.config["VIDEO_STREAM_SERVICE"] = None
+    
+    # QR code detector
+    try:
+        app.logger.info("Initializing QR detector...")
+        qr_detector = QRDetector(app.logger)
+        app.config["QR_DETECTOR"] = qr_detector
+        if qr_detector.is_available():
+            app.logger.info("QR detector initialized successfully")
+        else:
+            app.logger.warning("QR detector initialized but not available - check pyzbar and Pillow installation")
+    except Exception as exc:
+        app.logger.error("QR detector not initialized: %s", exc, exc_info=True)
+        app.config["QR_DETECTOR"] = None
 
     # Blueprints
     app.register_blueprint(routes_bp)

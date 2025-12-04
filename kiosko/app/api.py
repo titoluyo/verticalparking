@@ -14,6 +14,7 @@ except ImportError:
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token
+from .qr_detector import QRDetector
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
@@ -587,6 +588,44 @@ def _generate_error_frame_bytes(message: str) -> bytes:
         return b'--FRAME\r\nContent-Type: text/plain\r\n\r\nError: ' + str(e).encode() + b'\r\n'
 
 
+@bp.route("/camera/detect", methods=["POST"])
+def camera_detect_qr():
+    """Detect QR codes from an uploaded image frame.
+    
+    Request: multipart/form-data with 'frame' file (JPEG/PNG)
+    
+    Returns:
+        JSON with detected QR codes
+    """
+    if 'frame' not in request.files:
+        return jsonify({"error": "Missing 'frame' file in request"}), 400
+    
+    file = request.files['frame']
+    if file.filename == '':
+        return jsonify({"error": "No file selected"}), 400
+    
+    # Get QR detector from app config
+    qr_detector = current_app.config.get("QR_DETECTOR")
+    if not qr_detector or not qr_detector.is_available():
+        return jsonify({"error": "QR detection not available"}), 503
+    
+    try:
+        # Read image bytes
+        image_bytes = file.read()
+        
+        # Detect QR codes
+        qr_codes = qr_detector.detect_from_bytes(image_bytes)
+        
+        return jsonify({
+            "success": True,
+            "count": len(qr_codes),
+            "qr_codes": qr_codes
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error detecting QR codes: {e}", exc_info=True)
+        return jsonify({"error": f"Error processing image: {str(e)}"}), 500
+
+
 @bp.route("/camera/scan", methods=["POST"])
 def camera_scan():
     """Process a scanned QR code token and validate the ticket.
@@ -599,8 +638,6 @@ def camera_scan():
     Returns:
         JSON with ticket information if valid, error if not found
     """
-    # Camera service not needed - token validation only
-    
     data = request.get_json()
     if not data or "token" not in data:
         return jsonify({"error": "Missing 'token' in request body"}), 400
