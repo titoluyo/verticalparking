@@ -5,7 +5,6 @@ python-dotenv>=1.0.0
 python-escpos>=3.0.0
 pyusb>=1.2.0
 Pillow>=9.0.0
-# picamera2 requires system packages: sudo apt install python3-libcamera python3-picamera2
-# Then install in venv: pip install picamera2
-# Note: venv must be created with --system-site-packages to access system libcamera
-picamera2>=0.3.12; platform_system == "Linux"
+# picamera2 is installed via system package: sudo apt install python3-libcamera python3-picamera2
+# Requires venv with --system-site-packages to access system packages
+# Do NOT install via pip - use system package only
