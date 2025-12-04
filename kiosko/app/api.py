@@ -432,11 +432,21 @@ def print_exit_ticket():
 def camera_status():
     """Get camera service status information."""
     video_service = current_app.config.get("VIDEO_STREAM_SERVICE")
-    video_status = video_service.get_status() if video_service else None
+    current_app.logger.info(f"VideoStreamService in config: {video_service is not None}")
+    
+    if video_service:
+        video_status = video_service.get_status()
+        current_app.logger.info(f"VideoStreamService status: {video_status}")
+        available = video_status.get("available", False)
+    else:
+        video_status = None
+        available = False
+        current_app.logger.warning("VideoStreamService not found in config")
     
     return jsonify({
         "video_stream": video_status,
-        "available": video_status.get("available", False) if video_status else False
+        "available": available,
+        "enabled": video_status.get("enabled", False) if video_status else False
     })
 
 

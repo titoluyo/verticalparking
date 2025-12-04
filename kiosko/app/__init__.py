@@ -68,10 +68,13 @@ def create_app() -> Flask:
         video_stream_service = VideoStreamService.from_env(app.logger)
         app.config["VIDEO_STREAM_SERVICE"] = video_stream_service
         status = video_stream_service.get_status()
-        app.logger.info("Video stream service initialized: available=%s", status["available"])
+        app.logger.info("Video stream service initialized: available=%s, enabled=%s, resolution=%s", 
+                       status.get("available"), status.get("enabled"), status.get("resolution"))
+        if not status.get("available"):
+            app.logger.warning("Video stream service initialized but not available - check camera connection and picamera2 installation")
     except Exception as exc:
         # Keep app running even if video stream is unavailable; surface via API later.
-        app.logger.warning("Video stream service not initialized: %s", exc)
+        app.logger.error("Video stream service not initialized: %s", exc, exc_info=True)
         app.config["VIDEO_STREAM_SERVICE"] = None
 
     # Blueprints

@@ -65,16 +65,23 @@ class VideoStreamService:
     def _init_camera(self) -> bool:
         """Initialize the camera using picamera2."""
         try:
+            self.logger.info("Initializing Picamera2...")
             self._picam2 = Picamera2()
+            self.logger.info("Picamera2 created, configuring...")
+            
             self._picam2.configure(
                 self._picam2.create_video_configuration(
                     main={"size": (self._width, self._height)}
                 )
             )
+            self.logger.info(f"Picamera2 configured for {self._width}x{self._height}")
+            
             self._output = StreamingOutput()
+            self.logger.info("Starting recording with MJPEG encoder...")
             self._picam2.start_recording(MJPEGEncoder(), FileOutput(self._output))
+            
             self._available = True
-            self.logger.info(f"Video stream initialized: {self._width}x{self._height}")
+            self.logger.info(f"Video stream initialized successfully: {self._width}x{self._height}")
             return True
         except Exception as e:
             self.logger.error(f"Failed to initialize video stream: {e}", exc_info=True)
