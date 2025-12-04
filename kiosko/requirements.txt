@@ -4,8 +4,7 @@ paho-mqtt>=1.6
 python-dotenv>=1.0.0
 python-escpos>=3.0.0
 pyusb>=1.2.0
-opencv-python>=4.8.0
-pyzbar>=0.1.9
+Pillow>=9.0.0
 # picamera2 is optional - install system dependencies first on Linux
 # See CAMERA_SETUP.md for installation instructions
 # picamera2>=0.3.12; platform_system == "Linux"

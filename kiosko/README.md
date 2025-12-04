@@ -266,6 +266,13 @@ This script:
     "message": "Active cabin updated"
   }
   ```
+  
+  Example with curl:
+  ```bash
+  curl -X POST http://localhost:5000/api/active-cabin \
+    -H "Content-Type: application/json" \
+    -d '{"cabin_id": "cabina-02"}'
+  ```
 
 - `GET /api/sensors/cabins` - Get sensor status for multiple cabins
   Query parameters:
@@ -406,6 +413,11 @@ This script:
    ```bash
    # Get active cabin
    curl http://localhost:5000/api/active-cabin
+   
+   # Set active cabin
+   curl -X POST http://localhost:5000/api/active-cabin \
+     -H "Content-Type: application/json" \
+     -d '{"cabin_id": "cabina-02"}'
    
    # Store vehicle (triggers print automatically)
    curl -X POST http://localhost:5000/guardar

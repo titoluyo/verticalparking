@@ -6,10 +6,10 @@ import threading
 import time
 
 try:
-    import cv2
-    CV2_AVAILABLE = True
+    from PIL import Image, ImageDraw, ImageFont
+    PIL_AVAILABLE = True
 except ImportError:
-    CV2_AVAILABLE = False
+    PIL_AVAILABLE = False
 
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
@@ -431,118 +431,63 @@ def print_exit_ticket():
 @bp.route("/camera/status", methods=["GET"])
 def camera_status():
     """Get camera service status information."""
-    service = current_app.config.get("CAMERA_SERVICE")
-    if not service:
-        return jsonify({"error": "camera service unavailable"}), 503
+    video_service = current_app.config.get("VIDEO_STREAM_SERVICE")
+    video_status = video_service.get_status() if video_service else None
     
-    status = service.get_status()
-    return jsonify(status)
+    return jsonify({
+        "video_stream": video_status,
+        "available": video_status.get("available", False) if video_status else False
+    })
 
 
 @bp.route("/camera/stream", methods=["GET"])
 def camera_stream():
-    """MJPEG video stream from camera for QR code scanning."""
-    if not CV2_AVAILABLE:
-        current_app.logger.error("opencv-python not available for camera stream")
-        return _generate_error_frame("OpenCV no disponible"), 503
+    """MJPEG video stream from camera using picamera2 hardware encoder.
     
-    service = current_app.config.get("CAMERA_SERVICE")
-    if not service:
-        current_app.logger.error("Camera service not configured")
-        return _generate_error_frame("Servicio de cámara no configurado"), 503
+    Based on the picamera2 MJPEG server example.
+    """
+    video_service = current_app.config.get("VIDEO_STREAM_SERVICE")
+    if not video_service:
+        current_app.logger.error("VideoStreamService not configured")
+        return _generate_error_frame("Servicio de video no configurado"), 503
     
-    # Check status first
-    status = service.get_status()
-    if not status.get("enabled", True):
-        current_app.logger.warning("Camera service is disabled")
-        return _generate_error_frame("Cámara deshabilitada"), 503
+    if not video_service.is_available():
+        current_app.logger.error("VideoStreamService not available")
+        status = video_service.get_status()
+        return _generate_error_frame(f"Video stream no disponible (available: {status.get('available', False)})"), 503
     
-    # Try to start camera
-    if not service.start():
-        current_app.logger.error("Failed to start camera")
-        return _generate_error_frame("No se pudo iniciar la cámara"), 503
+    output = video_service.get_output()
+    if not output:
+        current_app.logger.error("VideoStreamService output not available")
+        return _generate_error_frame("Salida de video no disponible"), 503
     
     def generate():
-        """Generate MJPEG frames."""
-        frame_count = 0
-        error_count = 0
-        max_errors = 10
-        
+        """Generate MJPEG frames from picamera2 hardware encoder."""
         try:
             while True:
-                result = service.read_frame()
-                if result is None:
-                    error_count += 1
-                    if error_count > max_errors:
-                        current_app.logger.warning("Too many failed frame reads, sending error frame")
-                        yield _generate_error_frame_bytes("No se pueden leer frames de la cámara")
-                        time.sleep(1)
-                        error_count = 0
-                    else:
-                        time.sleep(0.1)
-                    continue
-                
-                frame, success = result
-                if not success or frame is None:
-                    error_count += 1
-                    if error_count > max_errors:
-                        yield _generate_error_frame_bytes("Frame inválido")
-                        time.sleep(1)
-                        error_count = 0
-                    else:
-                        time.sleep(0.1)
-                    continue
-                
-                # Reset error count on successful frame
-                error_count = 0
-                frame_count += 1
-                
-                # Detect QR codes and draw overlay
-                qr_codes = service.detect_qr_codes(frame)
-                if qr_codes:
-                    # Draw green rectangle around QR code
-                    for qr in qr_codes:
-                        x, y, w, h = qr['rect']
-                        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                        # Draw text
-                        cv2.putText(frame, "QR Code", (x, y - 10),
-                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-                
-                # Encode frame as JPEG
-                ret, jpeg = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if not ret:
-                    continue
-                
-                # MJPEG format: boundary + frame
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
-                
-                # Small delay to control frame rate
-                time.sleep(0.05)  # ~20 FPS
-                
-                # Log every 100 frames for debugging
-                if frame_count % 100 == 0:
-                    current_app.logger.debug(f"Camera stream: {frame_count} frames sent")
-        except GeneratorExit:
-            # Client disconnected
-            current_app.logger.info("Camera stream client disconnected")
+                with output.condition:
+                    output.condition.wait()
+                    frame = output.frame
+                if frame:
+                    yield (b'--FRAME\r\n'
+                           b'Content-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + str(len(frame)).encode() + b'\r\n'
+                           b'\r\n')
+                    yield frame
+                    yield b'\r\n'
         except Exception as e:
-            current_app.logger.error(f"Error in camera stream: {e}", exc_info=True)
-            try:
-                yield _generate_error_frame_bytes(f"Error: {str(e)}")
-            except:
-                pass
+            current_app.logger.warning(f"Camera stream client disconnected: {e}")
     
     return Response(
-        stream_with_context(generate()),
-        mimetype='multipart/x-mixed-replace; boundary=frame'
+        generate(),
+        mimetype='multipart/x-mixed-replace; boundary=FRAME'
     )
 
 
 def _generate_error_frame(message: str):
-    """Generate a simple error frame as JPEG."""
-    if not CV2_AVAILABLE:
-        # Return a simple text response if OpenCV is not available
+    """Generate a simple error frame as JPEG using PIL."""
+    if not PIL_AVAILABLE:
+        # Return a simple text response if PIL is not available
         return Response(
             f"Error: {message}",
             mimetype='text/plain',
@@ -551,59 +496,79 @@ def _generate_error_frame(message: str):
     
     # Create a simple error image
     try:
-        import numpy as np
-    except ImportError:
+        img = Image.new('RGB', (640, 480), color=(50, 50, 50))  # Dark gray background
+        draw = ImageDraw.Draw(img)
+        
+        # Try to use a nice font, fallback to default
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        except:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+        
+        # Calculate text position (centered)
+        bbox = draw.textbbox((0, 0), message, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        text_x = (640 - text_width) // 2
+        text_y = (480 - text_height) // 2
+        
+        # Draw text
+        draw.text((text_x, text_y), message, fill=(255, 255, 255), font=font)
+        
+        # Encode as JPEG
+        import io
+        jpeg_buffer = io.BytesIO()
+        img.save(jpeg_buffer, format='JPEG', quality=85)
+        jpeg_bytes = jpeg_buffer.getvalue()
+        
         return Response(
-            f"Error: {message} (numpy not available)",
-            mimetype='text/plain',
-            status=503
+            b'--FRAME\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n\r\n' + jpeg_bytes + b'\r\n',
+            mimetype='multipart/x-mixed-replace; boundary=FRAME'
         )
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    img.fill(50)  # Dark gray background
-    
-    # Add text
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    text = message
-    text_size = cv2.getTextSize(text, font, 1, 2)[0]
-    text_x = (640 - text_size[0]) // 2
-    text_y = (480 + text_size[1]) // 2
-    cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2)
-    
-    # Encode as JPEG
-    ret, jpeg = cv2.imencode('.jpg', img)
-    if ret:
-        return Response(
-            b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n',
-            mimetype='multipart/x-mixed-replace; boundary=frame'
-        )
-    else:
-        return Response("Error generating frame", status=503)
+    except Exception as e:
+        return Response(f"Error generating frame: {e}", status=503)
 
 
 def _generate_error_frame_bytes(message: str) -> bytes:
-    """Generate error frame bytes for streaming."""
-    if not CV2_AVAILABLE:
-        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError: ' + message.encode() + b'\r\n'
+    """Generate error frame bytes for streaming using PIL."""
+    if not PIL_AVAILABLE:
+        return b'--FRAME\r\nContent-Type: text/plain\r\n\r\nError: ' + message.encode() + b'\r\n'
     
     try:
-        import numpy as np
-    except ImportError:
-        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError: numpy not available\r\n'
-    img = np.zeros((480, 640, 3), dtype=np.uint8)
-    img.fill(50)
-    
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    text = message
-    text_size = cv2.getTextSize(text, font, 1, 2)[0]
-    text_x = (640 - text_size[0]) // 2
-    text_y = (480 + text_size[1]) // 2
-    cv2.putText(img, text, (text_x, text_y), font, 1, (255, 255, 255), 2)
-    
-    ret, jpeg = cv2.imencode('.jpg', img)
-    if ret:
-        return b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n'
-    else:
-        return b'--frame\r\nContent-Type: text/plain\r\n\r\nError\r\n'
+        img = Image.new('RGB', (640, 480), color=(50, 50, 50))  # Dark gray background
+        draw = ImageDraw.Draw(img)
+        
+        # Try to use a nice font, fallback to default
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 24)
+        except:
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", 24)
+            except:
+                font = ImageFont.load_default()
+        
+        # Calculate text position (centered)
+        bbox = draw.textbbox((0, 0), message, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        text_x = (640 - text_width) // 2
+        text_y = (480 - text_height) // 2
+        
+        # Draw text
+        draw.text((text_x, text_y), message, fill=(255, 255, 255), font=font)
+        
+        # Encode as JPEG
+        import io
+        jpeg_buffer = io.BytesIO()
+        img.save(jpeg_buffer, format='JPEG', quality=85)
+        jpeg_bytes = jpeg_buffer.getvalue()
+        
+        return b'--FRAME\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n\r\n' + jpeg_bytes + b'\r\n'
+    except Exception as e:
+        return b'--FRAME\r\nContent-Type: text/plain\r\n\r\nError: ' + str(e).encode() + b'\r\n'
 
 
 @bp.route("/camera/scan", methods=["POST"])
@@ -618,9 +583,7 @@ def camera_scan():
     Returns:
         JSON with ticket information if valid, error if not found
     """
-    service = current_app.config.get("CAMERA_SERVICE")
-    if not service:
-        return jsonify({"error": "camera service unavailable"}), 503
+    # Camera service not needed - token validation only
     
     data = request.get_json()
     if not data or "token" not in data:

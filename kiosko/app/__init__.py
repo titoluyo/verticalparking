@@ -10,7 +10,7 @@ from .routes import bp as routes_bp
 from .api import bp as api_bp
 from .presence import presence_service_from_env
 from .printer import PrinterService
-from .camera import CameraService
+from .video_stream import VideoStreamService
 
 
 def create_app() -> Flask:
@@ -58,17 +58,21 @@ def create_app() -> Flask:
         app.logger.warning("Printer service not initialized: %s", exc)
         app.config["PRINTER_SERVICE"] = None
     
-    # Camera service (QR code scanning)
+    # Camera service removed - using VideoStreamService (picamera2) for video streaming
+    # QR code detection can be done client-side or via separate service if needed
+    app.config["CAMERA_SERVICE"] = None
+    
+    # Video stream service (MJPEG streaming)
     try:
-        app.logger.info("Initializing camera service...")
-        camera_service = CameraService.from_env(app.logger)
-        app.config["CAMERA_SERVICE"] = camera_service
-        status = camera_service.get_status()
-        app.logger.info("Camera service initialized: available=%s, backend=%s", status["available"], status["backend"])
+        app.logger.info("Initializing video stream service...")
+        video_stream_service = VideoStreamService.from_env(app.logger)
+        app.config["VIDEO_STREAM_SERVICE"] = video_stream_service
+        status = video_stream_service.get_status()
+        app.logger.info("Video stream service initialized: available=%s", status["available"])
     except Exception as exc:
-        # Keep app running even if camera is unavailable; surface via API later.
-        app.logger.warning("Camera service not initialized: %s", exc)
-        app.config["CAMERA_SERVICE"] = None
+        # Keep app running even if video stream is unavailable; surface via API later.
+        app.logger.warning("Video stream service not initialized: %s", exc)
+        app.config["VIDEO_STREAM_SERVICE"] = None
 
     # Blueprints
     app.register_blueprint(routes_bp)

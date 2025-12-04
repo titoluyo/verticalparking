@@ -5,11 +5,11 @@
   <h2>Recoger vehículo</h2>
   <p class="instructions">Escanea el código QR de tu ticket para retirar tu vehículo</p>
   
-  <div class="camera-container">
+    <div class="camera-container">
     <div id="camera-status" class="camera-status">
       <span id="status-text">Iniciando cámara...</span>
     </div>
-    <img id="camera-stream" src="{{ url_for('api.camera_stream') }}" alt="Camera stream" />
+    <img id="camera-stream" src="" alt="Camera stream" style="display: none;" />
     <div id="camera-error" class="error-message" style="display: none;">
       <p>Error: No se pudo acceder a la cámara</p>
       <p class="error-detail"></p>
@@ -63,6 +63,10 @@
   
   // Check camera status on load
   function checkCameraStatus() {
+    // Clear previous errors
+    cameraError.style.display = 'none';
+    statusText.textContent = 'Verificando cámara...';
+    
     fetch('/api/camera/status')
       .then(response => {
         if (!response.ok) {
@@ -74,8 +78,10 @@
         console.log('Camera status:', data);
         if (data.available) {
           statusText.textContent = 'Cámara lista - Escanea tu ticket';
-          cameraStream.style.display = 'block';
           cameraError.style.display = 'none';
+          // Set stream source
+          cameraStream.src = "{{ url_for('api.camera_stream') }}";
+          cameraStream.style.display = 'block';
         } else {
           statusText.textContent = 'Cámara no disponible';
           const errorMsg = data.error || `Backend: ${data.backend || 'unknown'}, Enabled: ${data.enabled}`;
@@ -204,6 +210,7 @@
   // Cancel button
   btnCancel.addEventListener('click', () => {
     qrDetected.style.display = 'none';
+    ticketError.style.display = 'none';
     currentTicket = null;
     lastScannedToken = null;
   });
@@ -230,6 +237,11 @@
       statusText.textContent = 'Esperando stream de cámara...';
     }
   }, 3000);
+  
+  // Clear any previous error messages on page load
+  cameraError.style.display = 'none';
+  qrDetected.style.display = 'none';
+  ticketError.style.display = 'none';
   
   // Initialize
   checkCameraStatus();

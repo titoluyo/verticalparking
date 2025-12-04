@@ -3,7 +3,7 @@ Flask routes for the kiosk home screen.
 Currently exposes simple actions for storing or retrieving vehicles.
 """
 import uuid
-from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request
+from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, Response
 from .database import (
     create_ticket, update_cabin_status, find_free_cabin, get_cabin,
     get_ticket_by_token
@@ -127,3 +127,40 @@ def guardar_vehiculo():
 def recoger_vehiculo():
     """Placeholder view for retrieving a vehicle."""
     return render_template("recoger.html")
+
+
+@bp.route("/video")
+def video_view():
+    """Video streaming page."""
+    video_service = current_app.config.get("VIDEO_STREAM_SERVICE")
+    available = video_service.is_available() if video_service else False
+    return render_template("video.html", video_available=available)
+
+
+@bp.route("/stream.mjpg")
+def video_stream():
+    """MJPEG video stream endpoint."""
+    video_service = current_app.config.get("VIDEO_STREAM_SERVICE")
+    if not video_service or not video_service.is_available():
+        return Response("Video stream not available", status=503, mimetype="text/plain")
+    
+    output = video_service.get_output()
+    if not output:
+        return Response("Video stream output not available", status=503, mimetype="text/plain")
+    
+    def generate():
+        """Generator function for MJPEG streaming."""
+        while True:
+            with output.condition:
+                output.condition.wait()
+                frame = output.frame
+            if frame:
+                yield (b'--FRAME\r\n'
+                       b'Content-Type: image/jpeg\r\n'
+                       b'Content-Length: ' + str(len(frame)).encode() + b'\r\n'
+                       b'\r\n' + frame + b'\r\n')
+    
+    return Response(
+        generate(),
+        mimetype='multipart/x-mixed-replace; boundary=FRAME'
+    )

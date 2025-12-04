@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Stream - Vertical Parking</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .video-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            min-height: 80vh;
+        }
+        .video-wrapper {
+            background: var(--panel);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .video-stream {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+        .video-unavailable {
+            text-align: center;
+            padding: 40px;
+            color: var(--muted);
+        }
+        .back-link {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Video Stream</h1>
+    </div>
+    
+    <div class="video-container">
+        <div class="video-wrapper">
+            {% if video_available %}
+                <img src="{{ url_for('routes.video_stream') }}" alt="Video Stream" class="video-stream" />
+            {% else %}
+                <div class="video-unavailable">
+                    <h2>Video Stream No Disponible</h2>
+                    <p>El servicio de video streaming no está disponible en este momento.</p>
+                    <p>Esto puede deberse a:</p>
+                    <ul style="text-align: left; display: inline-block;">
+                        <li>No se detectó una cámara compatible</li>
+                        <li>El servicio no está habilitado</li>
+                        <li>No se está ejecutando en un Raspberry Pi</li>
+                    </ul>
+                </div>
+            {% endif %}
+        </div>
+        
+        <div class="back-link">
+            <a href="{{ url_for('routes.index') }}" class="btn btn-secondary">Volver al Inicio</a>
+        </div>
+    </div>
+</body>
+</html>
+
