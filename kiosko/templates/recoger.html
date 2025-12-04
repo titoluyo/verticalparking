@@ -82,6 +82,17 @@
           // Set stream source
           cameraStream.src = "{{ url_for('api.camera_stream') }}";
           cameraStream.style.display = 'block';
+          
+          // Start QR scanning when stream loads
+          cameraStream.onload = function() {
+            console.log('Camera stream loaded, starting QR scanning...');
+            startQRScanning();
+          };
+          
+          // Also start if already loaded
+          if (cameraStream.complete) {
+            startQRScanning();
+          }
         } else {
           statusText.textContent = 'Cámara no disponible';
           const errorMsg = data.error || `Backend: ${data.backend || 'unknown'}, Enabled: ${data.enabled}`;
@@ -124,9 +135,28 @@
             formData.append('frame', blob, 'frame.jpg');
             
             // Send frame to server for QR detection
-            // Note: We'll need to add a frame detection endpoint
-            // For now, we'll use a simpler approach: detect QR codes in the stream
-            // and send them via Server-Sent Events
+            fetch('/api/camera/detect', {
+              method: 'POST',
+              body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+              if (data.success && data.count > 0) {
+                // QR code detected!
+                const qrData = data.qr_codes[0].data;
+                console.log('QR code detected:', qrData);
+                
+                // Process the QR code token
+                if (qrData !== lastScannedToken) {
+                  lastScannedToken = qrData;
+                  processQRToken(qrData);
+                }
+              }
+            })
+            .catch(error => {
+              // Silently handle errors (don't spam console)
+              // console.error('QR detection error:', error);
+            });
           }
         }, 'image/jpeg', 0.8);
       }

@@ -597,24 +597,35 @@ def camera_detect_qr():
     Returns:
         JSON with detected QR codes
     """
+    current_app.logger.debug("QR detection request received")
+    
     if 'frame' not in request.files:
+        current_app.logger.warning("QR detection request missing 'frame' file")
         return jsonify({"error": "Missing 'frame' file in request"}), 400
     
     file = request.files['frame']
     if file.filename == '':
+        current_app.logger.warning("QR detection request with empty filename")
         return jsonify({"error": "No file selected"}), 400
     
     # Get QR detector from app config
     qr_detector = current_app.config.get("QR_DETECTOR")
     if not qr_detector or not qr_detector.is_available():
+        current_app.logger.warning("QR detection requested but detector not available")
         return jsonify({"error": "QR detection not available"}), 503
     
     try:
         # Read image bytes
         image_bytes = file.read()
+        current_app.logger.debug(f"Processing QR detection for image: {len(image_bytes)} bytes")
         
         # Detect QR codes
         qr_codes = qr_detector.detect_from_bytes(image_bytes)
+        
+        if qr_codes:
+            current_app.logger.info(f"QR detection successful: found {len(qr_codes)} QR code(s)")
+        else:
+            current_app.logger.debug("QR detection: no QR codes found in image")
         
         return jsonify({
             "success": True,

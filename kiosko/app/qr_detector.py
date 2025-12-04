@@ -73,6 +73,9 @@ class QRDetector:
                     'type': qr.type
                 })
             
+            if result:
+                self.logger.info(f"Detected {len(result)} QR code(s): {[r['data'] for r in result]}")
+            
             return result
         except Exception as e:
             self.logger.error(f"Error detecting QR codes: {e}")
@@ -110,6 +113,9 @@ class QRDetector:
                     'polygon': polygon,
                     'type': qr.type
                 })
+            
+            if result:
+                self.logger.info(f"Detected {len(result)} QR code(s) from PIL image: {[r['data'] for r in result]}")
             
             return result
         except Exception as e:
