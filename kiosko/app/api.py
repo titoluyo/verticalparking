@@ -932,7 +932,11 @@ def dashboard_cabins():
         for cabin_row in db_cabins:
             db_id = cabin_row["id"]
             estado = cabin_row["estado"]
-            updated_at = cabin_row.get("updated_at")
+            # sqlite3.Row supports dictionary access with [], not .get() method
+            try:
+                updated_at = cabin_row["updated_at"]
+            except (KeyError, IndexError):
+                updated_at = None
             
             # Get corresponding MQTT ID
             if db_id.startswith("CABINA-"):
