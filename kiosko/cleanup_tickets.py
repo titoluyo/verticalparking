@@ -93,6 +93,94 @@ def list_active_tickets():
     
     conn.close()
 
+def cleanup_all_tickets() -> int:
+    """Delete ALL tickets from the database (active and completed)."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    
+    # Count tickets before deletion
+    count_row = cur.execute("SELECT COUNT(*) as count FROM tickets").fetchone()
+    count = count_row[0] if count_row else 0
+    
+    if count == 0:
+        conn.close()
+        print("No tickets to delete.")
+        return 0
+    
+    # Delete all tickets
+    cur.execute("DELETE FROM tickets")
+    conn.commit()
+    
+    conn.close()
+    
+    print(f"✓ Deleted {count} ticket(s) from database")
+    return count
+
+def cleanup_completed_tickets() -> int:
+    """Delete only completed tickets, keep active ones."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    
+    # Count completed tickets before deletion
+    count_row = cur.execute("SELECT COUNT(*) as count FROM tickets WHERE status = 'completed'").fetchone()
+    count = count_row[0] if count_row else 0
+    
+    if count == 0:
+        conn.close()
+        print("No completed tickets to delete.")
+        return 0
+    
+    # Delete completed tickets only
+    cur.execute("DELETE FROM tickets WHERE status = 'completed'")
+    conn.commit()
+    
+    conn.close()
+    
+    print(f"✓ Deleted {count} completed ticket(s) from database")
+    return count
+
+def reset_all_cabins() -> int:
+    """Reset all cabins to 'free' status."""
+    conn = sqlite3.connect(str(DB_PATH))
+    cur = conn.cursor()
+    
+    # Count cabins
+    count_row = cur.execute("SELECT COUNT(*) as count FROM cabinas").fetchone()
+    count = count_row[0] if count_row else 0
+    
+    if count == 0:
+        conn.close()
+        print("No cabins found in database.")
+        return 0
+    
+    # Reset all cabins to free
+    cur.execute("UPDATE cabinas SET estado = 'free', updated_at = CURRENT_TIMESTAMP")
+    conn.commit()
+    
+    conn.close()
+    
+    print(f"✓ Reset {count} cabin(s) to 'free' status")
+    return count
+
+def full_cleanup(confirm: bool = False) -> dict:
+    """Full cleanup: delete all tickets and reset all cabins to free.
+    
+    Args:
+        confirm: Must be True to actually perform the cleanup (safety check)
+    
+    Returns:
+        Dictionary with cleanup results
+    """
+    if not confirm:
+        print("ERROR: Full cleanup requires confirmation. Use --confirm flag.")
+        return {"tickets_deleted": 0, "cabins_reset": 0}
+    
+    tickets_deleted = cleanup_all_tickets()
+    cabins_reset = reset_all_cabins()
+    
+    print(f"\n✓ Full cleanup completed: {tickets_deleted} tickets deleted, {cabins_reset} cabins reset")
+    return {"tickets_deleted": tickets_deleted, "cabins_reset": cabins_reset}
+
 def main():
     """Main function with interactive menu."""
     if not DB_PATH.exists():
@@ -119,6 +207,33 @@ def main():
                 complete_ticket(ticket_id)
             except ValueError:
                 print(f"ERROR: Invalid ticket ID: {sys.argv[2]}")
+        
+        elif command == "cleanup-all-tickets":
+            print("WARNING: This will delete ALL tickets (active and completed).")
+            print("Press Ctrl+C to cancel, or wait 3 seconds to continue...")
+            try:
+                import time
+                time.sleep(3)
+            except KeyboardInterrupt:
+                print("\nCancelled.")
+                sys.exit(0)
+            cleanup_all_tickets()
+        
+        elif command == "cleanup-completed":
+            cleanup_completed_tickets()
+        
+        elif command == "reset-cabins":
+            print("Resetting all cabins to 'free' status...")
+            reset_all_cabins()
+        
+        elif command == "full-cleanup":
+            if "--confirm" in sys.argv:
+                print("WARNING: This will delete ALL tickets and reset ALL cabins to 'free'.")
+                print("This is a destructive operation!")
+                full_cleanup(confirm=True)
+            else:
+                print("ERROR: Full cleanup requires --confirm flag for safety.")
+                print("Usage: python cleanup_tickets.py full-cleanup --confirm")
         
         else:
             print_usage()
