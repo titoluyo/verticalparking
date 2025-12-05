@@ -249,12 +249,19 @@ Commands:
   list                                    - List all active tickets
   complete-cabin <cabina_id>              - Complete all tickets for a cabin (e.g., CABINA-04 or just 04)
   complete-ticket <ticket_id>             - Complete a specific ticket by ID
+  cleanup-all-tickets                     - Delete ALL tickets (active and completed) - WARNING: destructive!
+  cleanup-completed                       - Delete only completed tickets (keeps active ones)
+  reset-cabins                            - Reset all cabins to 'free' status
+  full-cleanup --confirm                  - Delete all tickets AND reset all cabins (requires --confirm)
 
 Examples:
   python cleanup_tickets.py list
   python cleanup_tickets.py complete-cabin CABINA-04
   python cleanup_tickets.py complete-cabin 04
   python cleanup_tickets.py complete-ticket 5
+  python cleanup_tickets.py cleanup-completed
+  python cleanup_tickets.py reset-cabins
+  python cleanup_tickets.py full-cleanup --confirm
 """)
 
 if __name__ == "__main__":
