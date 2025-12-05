@@ -4,6 +4,7 @@ import os
 import queue
 import threading
 import time
+from typing import Optional
 
 try:
     from PIL import Image, ImageDraw, ImageFont
