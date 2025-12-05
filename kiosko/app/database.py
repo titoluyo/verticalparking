@@ -180,6 +180,22 @@ def get_ticket_by_token(token: str) -> Optional[sqlite3.Row]:
     return rows[0] if rows else None
 
 
+def has_active_ticket(cabina_id: str) -> bool:
+    """Check if a cabin has an active ticket.
+    
+    Args:
+        cabina_id: Cabin ID to check
+        
+    Returns:
+        True if cabin has an active ticket, False otherwise
+    """
+    rows = list(query(
+        "SELECT id FROM tickets WHERE cabina_id = ? AND status = 'active' LIMIT 1",
+        (cabina_id,)
+    ))
+    return len(rows) > 0
+
+
 # Cabin management functions
 def get_cabin(cabina_id: str) -> Optional[sqlite3.Row]:
     """Get cabin by ID.
@@ -256,46 +272,68 @@ def get_next_cabin_circular(current_cabin_id: str) -> str:
         return "CABINA-01"
 
 
-def find_next_free_cabin_circular(start_cabin_id: Optional[str] = None) -> Optional[str]:
+def find_next_free_cabin_circular(start_cabin_id: Optional[str] = None, logger=None) -> Optional[str]:
     """Find the next free cabin in circular order (01→02→03→04→05→06→01).
     
     Args:
         start_cabin_id: Cabin ID to start searching from (e.g., "CABINA-03").
                        If None, starts from CABINA-01.
+                       Search starts from the NEXT cabin after start_cabin_id.
+        logger: Optional logger for debugging
     
     Returns:
         Cabin ID of next free cabin in circular order, or None if no free cabins
     """
+    import logging
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
     # Get all cabins ordered by ID
     all_cabins = list(query("SELECT id, estado FROM cabinas ORDER BY id ASC"))
     if not all_cabins:
+        logger.warning("No cabins found in database")
         return None
     
     # Extract cabin numbers and create ordered list
     cabin_list = [row["id"] for row in all_cabins]  # ["CABINA-01", "CABINA-02", ...]
+    
+    # Log all cabin states for debugging
+    cabin_states = {row["id"]: row["estado"] for row in all_cabins}
+    logger.info(f"All cabin states: {cabin_states}")
     
     # Determine starting index
     start_idx = 0
     if start_cabin_id:
         try:
             start_idx = cabin_list.index(start_cabin_id)
+            logger.info(f"Starting circular search from {start_cabin_id} (index {start_idx})")
         except ValueError:
             # Cabin not found, start from beginning
+            logger.warning(f"Start cabin {start_cabin_id} not found, starting from beginning")
             start_idx = 0
     
     # Search circularly: start from start_idx+1 (next cabin), then wrap around
     # First pass: from start_idx+1 to end
+    logger.debug(f"First pass: checking cabins from index {start_idx + 1} to {len(cabin_list) - 1}")
     for i in range(start_idx + 1, len(cabin_list)):
         cabin_row = next((r for r in all_cabins if r["id"] == cabin_list[i]), None)
-        if cabin_row and cabin_row["estado"] == "free":
-            return cabin_list[i]
+        if cabin_row:
+            logger.debug(f"Checking {cabin_list[i]}: estado={cabin_row['estado']}")
+            if cabin_row["estado"] == "free":
+                logger.info(f"Found free cabin: {cabin_list[i]}")
+                return cabin_list[i]
     
-    # Second pass: from beginning to start_idx (wrap around)
-    for i in range(0, start_idx + 1):
+    # Second pass: from beginning to start_idx (wrap around, but skip start_idx itself)
+    logger.debug(f"Second pass: checking cabins from index 0 to {start_idx - 1}")
+    for i in range(0, start_idx):
         cabin_row = next((r for r in all_cabins if r["id"] == cabin_list[i]), None)
-        if cabin_row and cabin_row["estado"] == "free":
-            return cabin_list[i]
+        if cabin_row:
+            logger.debug(f"Checking {cabin_list[i]}: estado={cabin_row['estado']}")
+            if cabin_row["estado"] == "free":
+                logger.info(f"Found free cabin (wrapped): {cabin_list[i]}")
+                return cabin_list[i]
     
+    logger.warning(f"No free cabins found in circular search starting from {start_cabin_id}")
     return None
 
 

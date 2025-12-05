@@ -6,7 +6,8 @@ import uuid
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, Response
 from .database import (
     create_ticket, update_cabin_status, find_free_cabin, get_cabin,
-    get_ticket_by_token, find_next_free_cabin_circular, get_next_cabin_circular
+    get_ticket_by_token, find_next_free_cabin_circular, get_next_cabin_circular,
+    has_active_ticket
 )
 
 
@@ -51,15 +52,24 @@ def guardar_vehiculo():
             flash(f"Cabina {active_cabin} no encontrada en la base de datos", "error")
             return render_template("guardar.html", error="Cabina no encontrada")
         
+        # Check if active cabin is free or can be used (no active ticket)
         if cabin["estado"] != "free":
-            # Active cabin is busy, find next free cabin in circular order
-            current_app.logger.info(f"Active cabin {active_cabin} is busy, finding next free cabin in circular order")
-            free_cabin_id = find_next_free_cabin_circular(active_cabin)
-            if not free_cabin_id:
-                flash("No hay cabinas disponibles en este momento", "error")
-                return render_template("guardar.html", error="No hay cabinas disponibles")
-            active_cabin = free_cabin_id
-            current_app.logger.info(f"Using free cabin: {active_cabin}")
+            # Check if cabin actually has an active ticket
+            if has_active_ticket(active_cabin):
+                # Cabin has active ticket, find next free cabin in circular order
+                current_app.logger.info(f"Active cabin {active_cabin} is busy with active ticket, finding next free cabin in circular order")
+                free_cabin_id = find_next_free_cabin_circular(active_cabin, logger=current_app.logger)
+                if not free_cabin_id:
+                    current_app.logger.error(f"No free cabins found when searching from {active_cabin}")
+                    flash("No hay cabinas disponibles en este momento", "error")
+                    return render_template("guardar.html", error="No hay cabinas disponibles")
+                active_cabin = free_cabin_id
+                current_app.logger.info(f"Using free cabin: {active_cabin}")
+            else:
+                # Cabin is marked busy but has no active ticket - treat as free
+                current_app.logger.info(f"Active cabin {active_cabin} is marked busy but has no active ticket, treating as free")
+                # Reset cabin status to free
+                update_cabin_status(active_cabin, "free")
         
         # Generate unique token for QR code
         token = str(uuid.uuid4())
@@ -104,7 +114,7 @@ def guardar_vehiculo():
         # Find next free cabin in circular order and set it as active
         # Start searching from the next cabin in circular order after the one we just assigned
         next_cabin_in_circle = get_next_cabin_circular(active_cabin)
-        next_free_cabin = find_next_free_cabin_circular(next_cabin_in_circle)
+        next_free_cabin = find_next_free_cabin_circular(next_cabin_in_circle, logger=current_app.logger)
         
         if next_free_cabin:
             # Convert DB format (CABINA-01) to PresenceService format (cabina-01)
