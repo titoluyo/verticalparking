@@ -637,9 +637,66 @@ def camera_detect_qr():
         return jsonify({"error": f"Error processing image: {str(e)}"}), 500
 
 
+@bp.route("/cabin/move-to-floor", methods=["POST"])
+def move_cabin_to_floor():
+    """Send MQTT command to move cabin to floor level.
+    
+    Request body (JSON):
+    {
+        "cabin_id": "cabina-01"
+    }
+    
+    Returns:
+        JSON with success status
+    """
+    data = request.get_json()
+    if not data or "cabin_id" not in data:
+        return jsonify({"error": "Missing 'cabin_id' in request body"}), 400
+    
+    cabin_id = data.get("cabin_id")
+    presence_service = current_app.config.get("PRESENCE_SERVICE")
+    
+    if not presence_service:
+        return jsonify({"error": "Presence service unavailable"}), 503
+    
+    try:
+        # Get MQTT configuration from presence service
+        broker = presence_service.broker
+        port = presence_service.port
+        username = presence_service.username
+        password = presence_service.password
+        site = presence_service.site or "garage-01"
+        topic_base = presence_service.topic_base or "parking"
+        
+        # Construct command topic: parking/{site}/{cabin_id}/command/move-to-floor
+        command_topic = f"{topic_base}/{site}/{cabin_id}/command/move-to-floor"
+        
+        # Create MQTT client for publishing
+        client = mqtt.Client(client_id=f"kiosko-command-{int(time.time())}")
+        
+        if username and password:
+            client.username_pw_set(username, password)
+        
+        # Connect and publish
+        client.connect(broker, port, 60)
+        client.publish(command_topic, "1", qos=1, retain=False)
+        client.disconnect()
+        
+        current_app.logger.info(f"Sent move-to-floor command for {cabin_id} via MQTT topic: {command_topic}")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Move-to-floor command sent for {cabin_id}",
+            "topic": command_topic
+        }), 200
+    except Exception as e:
+        current_app.logger.error(f"Error sending move-to-floor command: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to send command: {str(e)}"}), 500
+
+
 @bp.route("/camera/scan", methods=["POST"])
 def camera_scan():
-    """Process a scanned QR code token and validate the ticket.
+    """Process a scanned QR code token, validate ticket, set active cabin, and move to floor.
     
     Request body (JSON):
     {
@@ -647,7 +704,7 @@ def camera_scan():
     }
     
     Returns:
-        JSON with ticket information if valid, error if not found
+        JSON with ticket information, cabin info, and processing status
     """
     data = request.get_json()
     if not data or "token" not in data:
@@ -668,16 +725,67 @@ def camera_scan():
             "token": token
         }), 404
     
-    # Return ticket information
+    cabin_id = ticket["cabina_id"]
+    current_app.logger.info(f"QR code scanned: token={token}, cabin={cabin_id}")
+    
+    # Set active cabin
+    presence_service = current_app.config.get("PRESENCE_SERVICE")
+    if presence_service:
+        success = presence_service.set_active_cabin(cabin_id)
+        if success:
+            current_app.logger.info(f"Active cabin set to {cabin_id}")
+        else:
+            current_app.logger.warning(f"Failed to set active cabin to {cabin_id}")
+    else:
+        current_app.logger.warning("Presence service not available, cannot set active cabin")
+    
+    # Send move-to-floor command
+    move_success = False
+    try:
+        # Get MQTT configuration from presence service
+        if presence_service:
+            broker = presence_service.broker
+            port = presence_service.port
+            username = presence_service.username
+            password = presence_service.password
+            site = presence_service.site or "garage-01"
+            topic_base = presence_service.topic_base or "parking"
+            
+            # Construct command topic: parking/{site}/{cabin_id}/command/move-to-floor
+            command_topic = f"{topic_base}/{site}/{cabin_id}/command/move-to-floor"
+            
+            # Create MQTT client for publishing
+            client = mqtt.Client(client_id=f"kiosko-command-{int(time.time())}")
+            
+            if username and password:
+                client.username_pw_set(username, password)
+            
+            # Connect and publish
+            client.connect(broker, port, 60)
+            client.publish(command_topic, "1", qos=1, retain=False)
+            client.disconnect()
+            
+            move_success = True
+            current_app.logger.info(f"Move-to-floor command sent for {cabin_id} via MQTT topic: {command_topic}")
+    except Exception as e:
+        current_app.logger.error(f"Error sending move-to-floor command: {e}", exc_info=True)
+    
+    # Return ticket information with processing status
     return jsonify({
         "success": True,
         "ticket": {
             "id": ticket["id"],
             "token": ticket["token"],
-            "cabina_id": ticket["cabina_id"],
+            "cabina_id": cabin_id,
             "entry_timestamp": ticket["entry_timestamp"],
             "status": ticket["status"]
-        }
+        },
+        "cabin": {
+            "id": cabin_id,
+            "active_set": presence_service is not None and (presence_service.get_active_cabin() == cabin_id if presence_service else False),
+            "move_to_floor_sent": move_success
+        },
+        "message": f"Ticket found for {cabin_id}. Active cabin set and move-to-floor command sent."
     }), 200
 
 

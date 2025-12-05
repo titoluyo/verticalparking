@@ -189,7 +189,7 @@
     ticketError.style.display = 'none';
     btnProcess.style.display = 'none';
     
-    // Validate token with server
+    // Validate token with server (this will also set active cabin and move to floor)
     fetch('/api/camera/scan', {
       method: 'POST',
       headers: {
@@ -200,21 +200,31 @@
     .then(response => response.json())
     .then(data => {
       if (data.success && data.ticket) {
-        // Show ticket info
+        // Show ticket info with cabin
         currentTicket = data.ticket;
-        ticketCabin.textContent = data.ticket.cabina_id;
+        const cabinId = data.ticket.cabina_id;
+        
+        // Display cabin information
+        ticketCabin.textContent = cabinId;
         ticketEntryTime.textContent = data.ticket.entry_timestamp || 'N/A';
         
-        if (data.ticket.status === 'active') {
-          ticketStatus.innerHTML = '<span style="color: green;">✓ Ticket activo</span>';
-          btnProcess.style.display = 'inline-block';
-        } else if (data.ticket.status === 'completed') {
-          ticketStatus.innerHTML = '<span style="color: orange;">⚠ Ticket ya procesado</span>';
-        } else {
-          ticketStatus.innerHTML = '<span style="color: red;">✗ Ticket cancelado</span>';
+        // Show status message
+        let statusMsg = `<span style="color: green;">✓ Ticket encontrado</span><br>`;
+        statusMsg += `<strong>Cabina: ${cabinId}</strong><br>`;
+        if (data.cabin && data.cabin.active_set) {
+          statusMsg += `<span style="color: green;">✓ Cabina activa configurada</span><br>`;
         }
+        if (data.cabin && data.cabin.move_to_floor_sent) {
+          statusMsg += `<span style="color: green;">✓ Comando enviado: mover a piso</span>`;
+        }
+        ticketStatus.innerHTML = statusMsg;
         
         ticketInfo.style.display = 'block';
+        
+        // Auto-redirect to main page after 2 seconds
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2000);
       } else {
         // Show error
         ticketErrorMsg.textContent = data.error || 'Ticket no encontrado';
