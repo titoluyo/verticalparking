@@ -123,8 +123,13 @@ def guardar_vehiculo():
             # Get cabin info to check minimum distance (floor level)
             next_cabin_info = get_cabin(next_free_cabin)
             minimum_distance = None
-            if next_cabin_info and next_cabin_info.get("minimum_distance"):
-                minimum_distance = int(next_cabin_info["minimum_distance"])
+            if next_cabin_info:
+                try:
+                    minimum_distance_value = next_cabin_info["minimum_distance"]
+                    if minimum_distance_value is not None:
+                        minimum_distance = int(minimum_distance_value)
+                except (KeyError, IndexError, ValueError, TypeError):
+                    minimum_distance = None
             
             # Get motor control service
             motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
