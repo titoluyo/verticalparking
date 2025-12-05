@@ -129,6 +129,12 @@ def recoger_vehiculo():
     return render_template("recoger.html")
 
 
+@bp.route("/dashboard")
+def dashboard():
+    """Dashboard page showing all cabins with their sensor status."""
+    return render_template("dashboard.html")
+
+
 @bp.route("/video")
 def video_view():
     """Video streaming page."""

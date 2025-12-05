@@ -13,7 +13,7 @@ except ImportError:
 
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
-from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token
+from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token, get_all_cabins
 from .qr_detector import QRDetector
 
 
@@ -787,6 +787,212 @@ def camera_scan():
         },
         "message": f"Ticket found for {cabin_id}. Active cabin set and move-to-floor command sent."
     }), 200
+
+
+@bp.route("/dashboard/cabins", methods=["GET"])
+def dashboard_cabins():
+    """Get all cabins from database with their current sensor status.
+    
+    Combines cabin database information (id, estado) with real-time sensor
+    data from MQTT to provide a complete dashboard view.
+    
+    Returns:
+        JSON with cabins array containing both DB and sensor data
+    """
+    try:
+        # Get all cabins from database
+        db_cabins = list(get_all_cabins())
+        
+        # Convert DB format (CABINA-01) to MQTT format (cabina-01) for sensor lookup
+        cabin_ids_mqtt = []
+        cabin_map = {}  # Maps DB format to MQTT format
+        
+        for cabin_row in db_cabins:
+            db_id = cabin_row["id"]  # "CABINA-01"
+            # Convert to MQTT format
+            if db_id.startswith("CABINA-"):
+                mqtt_id = db_id.replace("CABINA-", "cabina-").lower()
+            else:
+                mqtt_id = f"cabina-{db_id.zfill(2)}"
+            cabin_ids_mqtt.append(mqtt_id)
+            cabin_map[mqtt_id] = db_id
+        
+        # Get sensor data for all cabins
+        # Use existing sensor check logic but adapted for all cabins
+        broker = os.getenv("KIOSKO_MQTT_HOST", os.getenv("MQTT_BROKER", "127.0.0.1"))
+        port = int(os.getenv("KIOSKO_MQTT_PORT", os.getenv("MQTT_PORT", "1883")))
+        username = os.getenv("KIOSKO_MQTT_USER", os.getenv("MQTT_USER"))
+        password = os.getenv("KIOSKO_MQTT_PASSWORD", os.getenv("MQTT_PASSWORD"))
+        topic_base = os.getenv("KIOSKO_TOPIC_BASE", os.getenv("TOPIC_BASE", "parking"))
+        site = os.getenv("KIOSKO_SITE_ID", os.getenv("SITE_ID", "garage-01"))
+        
+        sensor_results = {}
+        messages_received = {}
+        lock = threading.Lock()
+        connection_event = threading.Event()
+        timeout_event = threading.Event()
+        
+        def on_connect(client, userdata, flags, rc):
+            if rc == 0:
+                connection_event.set()
+                for cabin_mqtt in cabin_ids_mqtt:
+                    device_id = cabin_mqtt
+                    topic_entry = f"{topic_base}/{site}/{device_id}/presence/entry"
+                    topic_full = f"{topic_base}/{site}/{device_id}/presence/full"
+                    client.subscribe(topic_entry, qos=1)
+                    client.subscribe(topic_full, qos=1)
+            else:
+                current_app.logger.error("MQTT connection failed with rc=%s", rc)
+        
+        def on_message(client, userdata, msg):
+            try:
+                payload = json.loads(msg.payload.decode("utf-8"))
+                device = payload.get("device", "")
+                sensor = payload.get("sensor", "")
+                present = bool(payload.get("present", False))
+                ts = payload.get("ts")
+                
+                cabin_mqtt = None
+                if device.startswith("cabina-"):
+                    cabin_mqtt = device
+                else:
+                    parts = msg.topic.split("/")
+                    if len(parts) >= 3:
+                        device_part = parts[2]
+                        if device_part.startswith("cabina-"):
+                            cabin_mqtt = device_part
+                
+                if not cabin_mqtt or cabin_mqtt not in cabin_ids_mqtt:
+                    return
+                
+                with lock:
+                    if cabin_mqtt not in sensor_results:
+                        sensor_results[cabin_mqtt] = {
+                            "entry": {"present": False, "ts": None},
+                            "full": {"present": False, "ts": None},
+                        }
+                    
+                    if sensor == "ir1" or "entry" in msg.topic:
+                        sensor_results[cabin_mqtt]["entry"] = {"present": present, "ts": ts}
+                        messages_received[f"{cabin_mqtt}/entry"] = True
+                    elif sensor == "ir2" or "full" in msg.topic:
+                        sensor_results[cabin_mqtt]["full"] = {"present": present, "ts": ts}
+                        messages_received[f"{cabin_mqtt}/full"] = True
+                    
+                    expected_count = len(cabin_ids_mqtt) * 2
+                    if len(messages_received) >= expected_count:
+                        timeout_event.set()
+            except Exception as e:
+                current_app.logger.warning("Error processing MQTT message: %s", e)
+        
+        # Get active cabin for reference
+        presence_service = current_app.config.get("PRESENCE_SERVICE")
+        active_cabin_mqtt = None
+        if presence_service:
+            active_cabin_db = presence_service.get_active_cabin()
+            if active_cabin_db:
+                # Normalize to match our format
+                if active_cabin_db.startswith("CABINA-"):
+                    active_cabin_mqtt = active_cabin_db.replace("CABINA-", "cabina-").lower()
+                elif active_cabin_db.startswith("cabina-"):
+                    active_cabin_mqtt = active_cabin_db.lower()
+        
+        # Get sensor data via MQTT (with timeout if MQTT unavailable)
+        client = mqtt.Client(client_id=f"kiosko-dashboard-{int(time.time())}", clean_session=True)
+        if username:
+            client.username_pw_set(username, password)
+        
+        client.on_connect = on_connect
+        client.on_message = on_message
+        
+        sensor_data_available = False
+        try:
+            client.connect(broker, port, keepalive=30)
+            client.loop_start()
+            
+            if connection_event.wait(timeout=5):
+                timeout_event.wait(timeout=3)
+                time.sleep(0.5)
+                sensor_data_available = True
+            else:
+                current_app.logger.warning("MQTT connection timeout for dashboard")
+            
+            client.loop_stop()
+            client.disconnect()
+        except Exception as e:
+            current_app.logger.warning("MQTT not available for dashboard: %s", e)
+            try:
+                client.loop_stop()
+                client.disconnect()
+            except:
+                pass
+        
+        # Combine database and sensor data
+        cabins_data = []
+        for cabin_row in db_cabins:
+            db_id = cabin_row["id"]
+            estado = cabin_row["estado"]
+            updated_at = cabin_row.get("updated_at")
+            
+            # Get corresponding MQTT ID
+            if db_id.startswith("CABINA-"):
+                mqtt_id = db_id.replace("CABINA-", "cabina-").lower()
+            else:
+                mqtt_id = f"cabina-{db_id.zfill(2)}"
+            
+            # Get sensor data if available
+            sensor_info = sensor_results.get(mqtt_id, {})
+            entry_sensor = sensor_info.get("entry", {"present": False, "ts": None})
+            full_sensor = sensor_info.get("full", {"present": False, "ts": None})
+            
+            # Determine overall state
+            if sensor_data_available:
+                if full_sensor.get("present", False):
+                    sensor_state = "occupied"
+                    sensor_message = "Vehículo detectado"
+                elif entry_sensor.get("present", False):
+                    sensor_state = "transitioning"
+                    sensor_message = "Vehículo ingresando..."
+                else:
+                    sensor_state = "free"
+                    sensor_message = "Espacio libre"
+            else:
+                sensor_state = "unknown"
+                sensor_message = "Sensor no disponible"
+            
+            is_active = (mqtt_id == active_cabin_mqtt) if active_cabin_mqtt else False
+            
+            cabin_data = {
+                "id": db_id,
+                "id_mqtt": mqtt_id,
+                "estado": estado,
+                "updated_at": updated_at,
+                "is_active": is_active,
+                "sensors": {
+                    "entry": {
+                        "present": entry_sensor.get("present", False),
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry_sensor["ts"])) if entry_sensor.get("ts") else None,
+                    },
+                    "full": {
+                        "present": full_sensor.get("present", False),
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_sensor["ts"])) if full_sensor.get("ts") else None,
+                    },
+                },
+                "sensor_state": sensor_state,
+                "sensor_message": sensor_message,
+                "sensor_data_available": sensor_data_available,
+            }
+            cabins_data.append(cabin_data)
+        
+        return jsonify({
+            "cabins": cabins_data,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "active_cabin": active_cabin_mqtt,
+        })
+        
+    except Exception as e:
+        current_app.logger.exception("Error getting dashboard cabins: %s", e)
+        return jsonify({"error": f"Failed to get dashboard data: {str(e)}"}), 500
 
 
 @bp.route("/db/cleanup", methods=["POST"])

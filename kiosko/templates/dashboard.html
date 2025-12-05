@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard - Sistema de Gestión{% endblock %}
+{% block content %}
+<div class="container" style="max-width: 100%; align-items: flex-start; overflow-y: auto;">
+<section class="dashboard">
+  <div class="dashboard-header">
+    <h1>Dashboard del Sistema</h1>
+    <p class="muted">Estado de todas las cabinas y sensores</p>
+    <div class="dashboard-controls">
+      <button id="btn-refresh" class="btn btn-secondary">Actualizar</button>
+      <span id="last-update" class="muted"></span>
+    </div>
+  </div>
+  
+  <div id="loading" class="loading">
+    <p>Cargando datos...</p>
+  </div>
+  
+  <div id="error" class="error-message" style="display: none;">
+    <p>Error al cargar datos. Intente nuevamente.</p>
+  </div>
+  
+  <div id="cabins-grid" class="cabins-grid" style="display: none;">
+    <!-- Cabins will be populated by JavaScript -->
+  </div>
+</section>
+
+<script>
+(function() {
+  const cabinsGrid = document.getElementById('cabins-grid');
+  const loading = document.getElementById('loading');
+  const error = document.getElementById('error');
+  const btnRefresh = document.getElementById('btn-refresh');
+  const lastUpdate = document.getElementById('last-update');
+  
+  let refreshInterval = null;
+  
+  function formatTimestamp(timestamp) {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    return date.toLocaleString('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  }
+  
+  function formatTimeAgo(timestamp) {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHr = Math.floor(diffMin / 60);
+    
+    if (diffSec < 60) return `hace ${diffSec}s`;
+    if (diffMin < 60) return `hace ${diffMin}m`;
+    if (diffHr < 24) return `hace ${diffHr}h`;
+    return date.toLocaleDateString('es-ES');
+  }
+  
+  function getStateClass(state) {
+    const stateMap = {
+      'free': 'cabin-card--free',
+      'occupied': 'cabin-card--occupied',
+      'transitioning': 'cabin-card--transitioning',
+      'unknown': 'cabin-card--unknown',
+      'busy': 'cabin-card--busy'
+    };
+    return stateMap[state] || 'cabin-card--unknown';
+  }
+  
+  function getStateLabel(state) {
+    const labelMap = {
+      'free': 'Libre',
+      'occupied': 'Ocupada',
+      'transitioning': 'Transición',
+      'unknown': 'Desconocido',
+      'busy': 'Ocupada'
+    };
+    return labelMap[state] || 'Desconocido';
+  }
+  
+  function renderCabins(data) {
+    const cabins = data.cabins || [];
+    
+    if (cabins.length === 0) {
+      cabinsGrid.innerHTML = '<p class="muted">No hay cabinas configuradas</p>';
+      return;
+    }
+    
+    cabinsGrid.innerHTML = cabins.map(cabin => {
+      // Determine the display state - prioritize sensor state if available
+      let displayState = cabin.estado === 'busy' ? 'busy' : 'free';
+      let displayMessage = '';
+      
+      if (cabin.sensor_data_available) {
+        displayState = cabin.sensor_state;
+        displayMessage = cabin.sensor_message;
+      } else {
+        displayMessage = cabin.estado === 'busy' ? 'Ocupada (DB)' : 'Libre (DB)';
+      }
+      
+      const stateClass = getStateClass(displayState);
+      const isActive = cabin.is_active ? 'cabin-card--active' : '';
+      
+      return `
+        <div class="cabin-card ${stateClass} ${isActive}">
+          <div class="cabin-card__header">
+            <h3 class="cabin-card__title">${cabin.id}</h3>
+            ${cabin.is_active ? '<span class="cabin-card__badge">Activa</span>' : ''}
+          </div>
+          
+          <div class="cabin-card__state">
+            <span class="state-dot state-dot--${displayState}"></span>
+            <span class="state-label">${getStateLabel(displayState)}</span>
+          </div>
+          
+          <div class="cabin-card__message">${displayMessage}</div>
+          
+          <div class="cabin-card__sensors">
+            <div class="sensor-item">
+              <span class="sensor-label">Entrada (IR1):</span>
+              <span class="sensor-value ${cabin.sensors.entry.present ? 'sensor-value--active' : ''}">
+                ${cabin.sensors.entry.present ? '✓ Detectado' : '○ Libre'}
+              </span>
+              ${cabin.sensors.entry.ts ? `<div class="sensor-time">${formatTimeAgo(cabin.sensors.entry.ts)}</div>` : ''}
+            </div>
+            
+            <div class="sensor-item">
+              <span class="sensor-label">Lleno (IR2):</span>
+              <span class="sensor-value ${cabin.sensors.full.present ? 'sensor-value--active' : ''}">
+                ${cabin.sensors.full.present ? '✓ Detectado' : '○ Libre'}
+              </span>
+              ${cabin.sensors.full.ts ? `<div class="sensor-time">${formatTimeAgo(cabin.sensors.full.ts)}</div>` : ''}
+            </div>
+          </div>
+          
+          <div class="cabin-card__meta">
+            <div class="meta-item">
+              <span class="meta-label">Estado DB:</span>
+              <span class="meta-value">${cabin.estado}</span>
+            </div>
+            ${cabin.updated_at ? `
+            <div class="meta-item">
+              <span class="meta-label">Actualizado:</span>
+              <span class="meta-value">${formatTimeAgo(cabin.updated_at)}</span>
+            </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  
+  function loadDashboard() {
+    loading.style.display = 'block';
+    error.style.display = 'none';
+    cabinsGrid.style.display = 'none';
+    
+    fetch('/api/dashboard/cabins')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then(data => {
+        loading.style.display = 'none';
+        cabinsGrid.style.display = 'grid';
+        renderCabins(data);
+        lastUpdate.textContent = `Última actualización: ${formatTimestamp(data.timestamp)}`;
+      })
+      .catch(err => {
+        console.error('Error loading dashboard:', err);
+        loading.style.display = 'none';
+        error.style.display = 'block';
+        cabinsGrid.style.display = 'none';
+      });
+  }
+  
+  btnRefresh.addEventListener('click', loadDashboard);
+  
+  // Load initially
+  loadDashboard();
+  
+  // Auto-refresh every 5 seconds
+  refreshInterval = setInterval(loadDashboard, 5000);
+  
+  // Clean up on page unload
+  window.addEventListener('beforeunload', () => {
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+    }
+  });
+})();
+</script>
+</section>
+</div>
+{% endblock %}
