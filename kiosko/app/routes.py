@@ -6,7 +6,7 @@ import uuid
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, Response
 from .database import (
     create_ticket, update_cabin_status, find_free_cabin, get_cabin,
-    get_ticket_by_token
+    get_ticket_by_token, find_next_free_cabin_circular, get_next_cabin_circular
 )
 
 
@@ -52,9 +52,9 @@ def guardar_vehiculo():
             return render_template("guardar.html", error="Cabina no encontrada")
         
         if cabin["estado"] != "free":
-            # Active cabin is busy, find a free one
-            current_app.logger.info(f"Active cabin {active_cabin} is busy, finding free cabin")
-            free_cabin_id = find_free_cabin()
+            # Active cabin is busy, find next free cabin in circular order
+            current_app.logger.info(f"Active cabin {active_cabin} is busy, finding next free cabin in circular order")
+            free_cabin_id = find_next_free_cabin_circular(active_cabin)
             if not free_cabin_id:
                 flash("No hay cabinas disponibles en este momento", "error")
                 return render_template("guardar.html", error="No hay cabinas disponibles")
@@ -101,13 +101,16 @@ def guardar_vehiculo():
             current_app.logger.warning("Printer service not available")
             flash("Ticket guardado pero impresora no disponible", "warning")
         
-        # Find next free cabin and set it as active
-        next_free_cabin = find_free_cabin()
+        # Find next free cabin in circular order and set it as active
+        # Start searching from the next cabin in circular order after the one we just assigned
+        next_cabin_in_circle = get_next_cabin_circular(active_cabin)
+        next_free_cabin = find_next_free_cabin_circular(next_cabin_in_circle)
+        
         if next_free_cabin:
             # Convert DB format (CABINA-01) to PresenceService format (cabina-01)
             next_free_cabin_presence = next_free_cabin.replace("CABINA-", "cabina-").lower()
             if presence_service.set_active_cabin(next_free_cabin_presence):
-                current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence}")
+                current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence} (circular order)")
             else:
                 current_app.logger.warning(f"Failed to set active cabin to: {next_free_cabin_presence}")
         else:

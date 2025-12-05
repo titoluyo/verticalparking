@@ -231,6 +231,74 @@ def find_free_cabin() -> Optional[str]:
     return rows[0]["id"] if rows else None
 
 
+def get_next_cabin_circular(current_cabin_id: str) -> str:
+    """Get the next cabin in circular order (01→02→03→04→05→06→01).
+    
+    Args:
+        current_cabin_id: Current cabin ID (e.g., "CABINA-01" or "CABINA-06")
+    
+    Returns:
+        Next cabin ID in circular order (CABINA-06 wraps to CABINA-01)
+    """
+    # Extract number from cabin ID
+    if current_cabin_id.startswith("CABINA-"):
+        num_str = current_cabin_id[7:]
+    else:
+        num_str = current_cabin_id
+    
+    try:
+        cabin_num = int(num_str)
+        # Circular: 1-6, wraps 6→1
+        next_num = (cabin_num % 6) + 1
+        return f"CABINA-{next_num:02d}"
+    except (ValueError, TypeError):
+        # If can't parse, default to CABINA-01
+        return "CABINA-01"
+
+
+def find_next_free_cabin_circular(start_cabin_id: Optional[str] = None) -> Optional[str]:
+    """Find the next free cabin in circular order (01→02→03→04→05→06→01).
+    
+    Args:
+        start_cabin_id: Cabin ID to start searching from (e.g., "CABINA-03").
+                       If None, starts from CABINA-01.
+    
+    Returns:
+        Cabin ID of next free cabin in circular order, or None if no free cabins
+    """
+    # Get all cabins ordered by ID
+    all_cabins = list(query("SELECT id, estado FROM cabinas ORDER BY id ASC"))
+    if not all_cabins:
+        return None
+    
+    # Extract cabin numbers and create ordered list
+    cabin_list = [row["id"] for row in all_cabins]  # ["CABINA-01", "CABINA-02", ...]
+    
+    # Determine starting index
+    start_idx = 0
+    if start_cabin_id:
+        try:
+            start_idx = cabin_list.index(start_cabin_id)
+        except ValueError:
+            # Cabin not found, start from beginning
+            start_idx = 0
+    
+    # Search circularly: start from start_idx+1 (next cabin), then wrap around
+    # First pass: from start_idx+1 to end
+    for i in range(start_idx + 1, len(cabin_list)):
+        cabin_row = next((r for r in all_cabins if r["id"] == cabin_list[i]), None)
+        if cabin_row and cabin_row["estado"] == "free":
+            return cabin_list[i]
+    
+    # Second pass: from beginning to start_idx (wrap around)
+    for i in range(0, start_idx + 1):
+        cabin_row = next((r for r in all_cabins if r["id"] == cabin_list[i]), None)
+        if cabin_row and cabin_row["estado"] == "free":
+            return cabin_list[i]
+    
+    return None
+
+
 def get_all_cabins() -> Iterable[sqlite3.Row]:
     """Get all cabins ordered by ID.
     

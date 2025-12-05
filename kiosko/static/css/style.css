@@ -121,13 +121,23 @@ button, .btn, input { min-height: 48px; }
 .cabin-card__title { margin: 0; font-size: 24px; font-weight: 700; }
 .cabin-card__badge { display: inline-block; padding: 2px 6px; background: var(--primary); color: var(--bg); border-radius: 3px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
 
-.cabin-card__state { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.state-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.cabin-card__state { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+.state-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .state-dot--free { background: var(--secondary); }
 .state-dot--occupied, .state-dot--busy { background: var(--primary); box-shadow: 0 0 6px rgba(46, 160, 67, 0.6); }
 .state-dot--transitioning { background: #ffc107; box-shadow: 0 0 6px rgba(255, 193, 7, 0.6); }
 .state-dot--unknown { background: var(--muted); }
 .state-label { font-size: 13px; font-weight: 600; }
+.floor-indicator { 
+  display: inline-block; 
+  padding: 2px 6px; 
+  background: rgba(46, 160, 67, 0.2); 
+  color: var(--primary); 
+  border-radius: 4px; 
+  font-size: 10px; 
+  font-weight: 600; 
+  margin-left: 4px;
+}
 
 .cabin-card__sensors { display: flex; gap: 16px; align-items: center; }
 .sensor-item { display: flex; align-items: center; gap: 6px; }

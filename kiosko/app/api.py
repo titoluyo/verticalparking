@@ -810,6 +810,25 @@ def _format_timestamp(ts_value):
         return None
 
 
+def _is_at_floor(current_distance: Optional[int], minimum_distance: Optional[int], tolerance: int = 10) -> bool:
+    """Determine if cabin is at floor level based on distance comparison.
+    
+    Args:
+        current_distance: Current distance reading in mm (None if unavailable)
+        minimum_distance: Minimum distance (floor level) in mm (None if not calibrated)
+        tolerance: Tolerance in mm for considering cabin at floor (default: 10mm)
+        
+    Returns:
+        True if cabin is at floor level, False otherwise
+    """
+    if current_distance is None or minimum_distance is None:
+        return False
+    
+    # Cabin is at floor if current distance is within tolerance of minimum
+    # (smaller number = closer to sensor = at floor)
+    return abs(current_distance - minimum_distance) <= tolerance
+
+
 @bp.route("/dashboard/cabins", methods=["GET"])
 def dashboard_cabins():
     """Get all cabins from database with their current sensor status.
@@ -1133,6 +1152,10 @@ def dashboard_cabins():
                 "sensor_state": sensor_state,
                 "sensor_message": sensor_message,
                 "sensor_data_available": sensor_data_available,
+                "is_at_floor": _is_at_floor(
+                    distance_sensor.get("mm"),
+                    distance_sensor.get("min_mm") if distance_sensor.get("min_mm") is not None else minimum_distance
+                ),
             }
             cabins_data.append(cabin_data)
         

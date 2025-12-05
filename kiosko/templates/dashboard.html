@@ -127,6 +127,7 @@
           <div class="cabin-card__state">
             <span class="state-dot state-dot--${displayState}"></span>
             <span class="state-label">${getStateLabel(displayState)}</span>
+            ${cabin.is_at_floor ? '<span class="floor-indicator">En Piso</span>' : ''}
           </div>
           
           <div class="cabin-card__sensors">
