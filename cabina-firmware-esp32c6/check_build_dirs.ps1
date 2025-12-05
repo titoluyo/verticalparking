@@ -55,3 +55,4 @@ Write-Host "3. Then try: idf.py menuconfig" -ForegroundColor Yellow
 
 
 
+
