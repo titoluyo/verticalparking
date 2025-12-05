@@ -133,8 +133,25 @@ def guardar_vehiculo():
             
             # Get motor control service
             motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
+            current_app.logger.info(f"Motor control service available: {motor_service is not None}")
             
-            if motor_service and minimum_distance:
+            # If no minimum_distance in DB, try to get current distance from presence service as fallback
+            if not minimum_distance and motor_service:
+                current_app.logger.info(f"No minimum distance in DB for {next_free_cabin}, checking current distance...")
+                snapshot = presence_service.snapshot(cabin_id=next_free_cabin_presence)
+                if isinstance(snapshot, dict):
+                    distance_data = snapshot.get("distance")
+                    if distance_data and isinstance(distance_data, dict):
+                        current_dist = distance_data.get("mm")
+                        if current_dist is not None:
+                            # Use current distance as temporary minimum (assuming it's already at or near floor)
+                            minimum_distance = int(current_dist)
+                            current_app.logger.info(
+                                f"Using current distance {minimum_distance}mm as temporary floor reference for {next_free_cabin}"
+                            )
+            
+            # Always try to start motor if service is available
+            if motor_service:
                 # Define callback to activate cabin when it reaches floor
                 def on_floor_reached(cabin_id: str):
                     """Callback when cabin reaches floor level."""
@@ -143,37 +160,42 @@ def guardar_vehiculo():
                     presence_service.set_active_cabin(cabin_id_presence)
                     current_app.logger.info(f"Cabin {cabin_id} reached floor - activated as active cabin")
                 
-                # Start motor and monitor distance
-                current_app.logger.info(
-                    f"Starting motor to move {next_free_cabin_presence} to floor "
-                    f"(target distance: {minimum_distance}mm)"
-                )
-                
                 # Start motor
-                if motor_service.start_motor(next_free_cabin_presence):
-                    # Start monitoring distance - will auto-stop and activate cabin when floor reached
-                    motor_service.start_monitoring(
-                        target_cabin=next_free_cabin_presence,
-                        minimum_distance=minimum_distance,
-                        presence_service=presence_service,
-                        stop_callback=on_floor_reached,
-                        tolerance=10  # 10mm tolerance for floor detection
-                    )
-                    current_app.logger.info(f"Motor started and monitoring initiated for {next_free_cabin_presence}")
+                current_app.logger.info(f"Starting motor to move {next_free_cabin_presence} to floor...")
+                motor_started = motor_service.start_motor(next_free_cabin_presence)
+                
+                if motor_started:
+                    current_app.logger.info(f"Motor started successfully for {next_free_cabin_presence}")
+                    
+                    # If we have minimum_distance, monitor and auto-stop when floor is reached
+                    if minimum_distance:
+                        current_app.logger.info(
+                            f"Monitoring {next_free_cabin_presence} distance (target: {minimum_distance}mm ±10mm)"
+                        )
+                        motor_service.start_monitoring(
+                            target_cabin=next_free_cabin_presence,
+                            minimum_distance=minimum_distance,
+                            presence_service=presence_service,
+                            stop_callback=on_floor_reached,
+                            tolerance=10  # 10mm tolerance for floor detection
+                        )
+                    else:
+                        current_app.logger.warning(
+                            f"No minimum distance available for {next_free_cabin_presence}, "
+                            f"motor started but will not auto-stop. Monitor manually or calibrate floor level."
+                        )
+                    
+                    # Set as active cabin (motor is moving it to floor)
+                    presence_service.set_active_cabin(next_free_cabin_presence)
                 else:
                     current_app.logger.error(f"Failed to start motor for {next_free_cabin_presence}")
                     # Fallback: just set as active cabin
                     presence_service.set_active_cabin(next_free_cabin_presence)
             else:
-                # No motor service or no minimum distance - just set as active cabin
-                if not minimum_distance:
-                    current_app.logger.warning(
-                        f"No minimum distance configured for {next_free_cabin}, "
-                        f"cannot auto-move to floor. Setting as active cabin."
-                    )
-                
+                # No motor service - just set as active cabin
+                current_app.logger.warning("Motor control service not available, cannot start motor")
                 if presence_service.set_active_cabin(next_free_cabin_presence):
-                    current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence} (circular order)")
+                    current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence} (no motor service)")
                 else:
                     current_app.logger.warning(f"Failed to set active cabin to: {next_free_cabin_presence}")
         else:
