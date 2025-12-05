@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block title %}Dashboard - Sistema de Gestión{% endblock %}
 {% block content %}
-<div class="container" style="max-width: 100%; align-items: flex-start; overflow-y: auto;">
+<div class="container" style="max-width: 100%; align-items: flex-start; overflow-y: auto; padding: 8px;">
 <section class="dashboard">
   <div class="dashboard-header">
     <h1>Dashboard del Sistema</h1>
@@ -77,12 +77,18 @@
   function getStateLabel(state) {
     const labelMap = {
       'free': 'Libre',
-      'occupied': 'Ocupada',
-      'transitioning': 'Transición',
-      'unknown': 'Desconocido',
-      'busy': 'Ocupada'
+      'occupied': 'Ocup',
+      'transitioning': 'Trans',
+      'unknown': '?',
+      'busy': 'Ocup'
     };
-    return labelMap[state] || 'Desconocido';
+    return labelMap[state] || '?';
+  }
+  
+  function extractCabinNumber(cabinId) {
+    // Extract number from "CABINA-01" -> "01"
+    const match = cabinId.match(/(\d+)$/);
+    return match ? match[1] : cabinId;
   }
   
   function renderCabins(data) {
@@ -96,23 +102,20 @@
     cabinsGrid.innerHTML = cabins.map(cabin => {
       // Determine the display state - prioritize sensor state if available
       let displayState = cabin.estado === 'busy' ? 'busy' : 'free';
-      let displayMessage = '';
       
       if (cabin.sensor_data_available) {
         displayState = cabin.sensor_state;
-        displayMessage = cabin.sensor_message;
-      } else {
-        displayMessage = cabin.estado === 'busy' ? 'Ocupada (DB)' : 'Libre (DB)';
       }
       
       const stateClass = getStateClass(displayState);
       const isActive = cabin.is_active ? 'cabin-card--active' : '';
+      const cabinNumber = extractCabinNumber(cabin.id);
       
       return `
         <div class="cabin-card ${stateClass} ${isActive}">
           <div class="cabin-card__header">
-            <h3 class="cabin-card__title">${cabin.id}</h3>
-            ${cabin.is_active ? '<span class="cabin-card__badge">Activa</span>' : ''}
+            <h3 class="cabin-card__title">${cabinNumber}</h3>
+            ${cabin.is_active ? '<span class="cabin-card__badge">A</span>' : ''}
           </div>
           
           <div class="cabin-card__state">
@@ -120,37 +123,20 @@
             <span class="state-label">${getStateLabel(displayState)}</span>
           </div>
           
-          <div class="cabin-card__message">${displayMessage}</div>
-          
           <div class="cabin-card__sensors">
             <div class="sensor-item">
-              <span class="sensor-label">Entrada (IR1):</span>
+              <span class="sensor-label">E:</span>
               <span class="sensor-value ${cabin.sensors.entry.present ? 'sensor-value--active' : ''}">
-                ${cabin.sensors.entry.present ? '✓ Detectado' : '○ Libre'}
+                ${cabin.sensors.entry.present ? '✓' : '○'}
               </span>
-              ${cabin.sensors.entry.ts ? `<div class="sensor-time">${formatTimeAgo(cabin.sensors.entry.ts)}</div>` : ''}
             </div>
             
             <div class="sensor-item">
-              <span class="sensor-label">Lleno (IR2):</span>
+              <span class="sensor-label">L:</span>
               <span class="sensor-value ${cabin.sensors.full.present ? 'sensor-value--active' : ''}">
-                ${cabin.sensors.full.present ? '✓ Detectado' : '○ Libre'}
+                ${cabin.sensors.full.present ? '✓' : '○'}
               </span>
-              ${cabin.sensors.full.ts ? `<div class="sensor-time">${formatTimeAgo(cabin.sensors.full.ts)}</div>` : ''}
             </div>
-          </div>
-          
-          <div class="cabin-card__meta">
-            <div class="meta-item">
-              <span class="meta-label">Estado DB:</span>
-              <span class="meta-value">${cabin.estado}</span>
-            </div>
-            ${cabin.updated_at ? `
-            <div class="meta-item">
-              <span class="meta-label">Actualizado:</span>
-              <span class="meta-value">${formatTimeAgo(cabin.updated_at)}</span>
-            </div>
-            ` : ''}
           </div>
         </div>
       `;
