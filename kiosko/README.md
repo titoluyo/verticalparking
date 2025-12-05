@@ -277,7 +277,7 @@ This script:
 - `GET /api/sensors/cabins` - Get sensor status for multiple cabins
   Query parameters:
   - `start` (optional): Start cabin ID, default: `cabina-01`
-  - `end` (optional): End cabin ID, default: `cabina-07`
+  - `end` (optional): End cabin ID, default: `cabina-06`
   
   Example: `GET /api/sensors/cabins?start=cabina-01&end=cabina-03`
   
@@ -491,7 +491,7 @@ CREATE TABLE cabinas (
 
 The database is automatically initialized on first run with:
 - All tables created
-- Cabins 01-07 initialized with status 'free'
+- Cabins 01-06 initialized with status 'free'
 - Indexes created for performance
 
 **Cleanup operations:**

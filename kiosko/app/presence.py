@@ -133,17 +133,17 @@ class PresenceService:
         if cabins_str:
             # Parse cabin range or list
             if "-" in cabins_str:
-                # Try to parse as range format: "cabina-01-cabina-07" or "cabina-01-07"
+                # Try to parse as range format: "cabina-01-cabina-06" or "cabina-01-06"
                 try:
                     # Check if it's "cabina-XX-cabina-YY" format
                     if cabins_str.startswith("cabina-") and cabins_str.count("cabina-") == 2:
-                        # Format: "cabina-01-cabina-07"
+                        # Format: "cabina-01-cabina-06"
                         parts = cabins_str.split("cabina-")
                         start_num = int(parts[1].split("-")[0])
                         end_num = int(parts[2])
                         cabins = [f"cabina-{i:02d}" for i in range(start_num, end_num + 1)]
                     elif cabins_str.startswith("cabina-"):
-                        # Format: "cabina-01-07"
+                        # Format: "cabina-01-06"
                         parts = cabins_str.split("-")
                         if len(parts) == 3:
                             start_num = int(parts[1])

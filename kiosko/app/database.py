@@ -58,7 +58,7 @@ def init_db() -> None:
             """
         )
         
-        # Cabinas table - stores cabin status (01-07)
+        # Cabinas table - stores cabin status (01-06)
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS cabinas (
@@ -83,6 +83,9 @@ def init_db() -> None:
         )
         
         db.commit()
+        
+        # Remove cabin 07 if it exists (no longer used)
+        cur.execute("DELETE FROM cabinas WHERE id = 'CABINA-07'")
         
         # Initialize cabinas 01-06 if they don't exist
         for i in range(1, 7):
