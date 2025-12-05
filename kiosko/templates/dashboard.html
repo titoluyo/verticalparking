@@ -8,6 +8,10 @@
     <p class="muted">Estado de todas las cabinas y sensores</p>
     <div class="dashboard-controls">
       <button id="btn-refresh" class="btn btn-secondary">Actualizar</button>
+      <div id="loading-indicator" class="loading-indicator" style="display: none;">
+        <span class="loading-spinner"></span>
+        <span>Actualizando...</span>
+      </div>
       <span id="last-update" class="muted"></span>
     </div>
   </div>
@@ -30,10 +34,12 @@
   const cabinsGrid = document.getElementById('cabins-grid');
   const loading = document.getElementById('loading');
   const error = document.getElementById('error');
+  const loadingIndicator = document.getElementById('loading-indicator');
   const btnRefresh = document.getElementById('btn-refresh');
   const lastUpdate = document.getElementById('last-update');
   
   let refreshInterval = null;
+  let isInitialLoad = true;
   
   function formatTimestamp(timestamp) {
     if (!timestamp) return 'N/A';
@@ -137,6 +143,15 @@
                 ${cabin.sensors.full.present ? '✓' : '○'}
               </span>
             </div>
+            
+            ${cabin.sensors.distance && cabin.sensors.distance.mm !== null ? `
+            <div class="sensor-item">
+              <span class="sensor-label">D:</span>
+              <span class="sensor-value">
+                ${cabin.sensors.distance.mm}
+              </span>
+            </div>
+            ` : ''}
           </div>
         </div>
       `;
@@ -144,9 +159,17 @@
   }
   
   function loadDashboard() {
-    loading.style.display = 'block';
-    error.style.display = 'none';
-    cabinsGrid.style.display = 'none';
+    // On initial load, show full loading screen
+    if (isInitialLoad) {
+      loading.style.display = 'block';
+      error.style.display = 'none';
+      cabinsGrid.style.display = 'none';
+    } else {
+      // On refresh, show subtle loading indicator, keep data visible
+      loadingIndicator.classList.add('loading');
+      cabinsGrid.classList.add('updating');
+      error.style.display = 'none';
+    }
     
     fetch('/api/dashboard/cabins')
       .then(response => {
@@ -156,16 +179,28 @@
         return response.json();
       })
       .then(data => {
-        loading.style.display = 'none';
-        cabinsGrid.style.display = 'grid';
+        if (isInitialLoad) {
+          loading.style.display = 'none';
+          cabinsGrid.style.display = 'grid';
+          isInitialLoad = false;
+        } else {
+          loadingIndicator.classList.remove('loading');
+          cabinsGrid.classList.remove('updating');
+        }
         renderCabins(data);
         lastUpdate.textContent = `Última actualización: ${formatTimestamp(data.timestamp)}`;
       })
       .catch(err => {
         console.error('Error loading dashboard:', err);
-        loading.style.display = 'none';
-        error.style.display = 'block';
-        cabinsGrid.style.display = 'none';
+        if (isInitialLoad) {
+          loading.style.display = 'none';
+          error.style.display = 'block';
+          cabinsGrid.style.display = 'none';
+        } else {
+          loadingIndicator.classList.remove('loading');
+          cabinsGrid.classList.remove('updating');
+          error.style.display = 'block';
+        }
       });
   }
   

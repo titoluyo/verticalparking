@@ -22,9 +22,9 @@ pip install -r "$ROOT_DIR/requirements.txt" >/dev/null 2>&1
 
 export PORT=${PORT:-5000}
 
-# Enable multi-cabin mode for cabins cabina-01 to cabina-07
+# Enable multi-cabin mode for cabins cabina-01 to cabina-06
 # This overrides KIOSKO_DEVICE_ID if set, forcing multi-cabin mode
-export KIOSKO_CABINS=${KIOSKO_CABINS:-"cabina-01-cabina-07"}
+export KIOSKO_CABINS=${KIOSKO_CABINS:-"cabina-01-cabina-06"}
 
 echo "[start_kiosko] Starting app on :$PORT ..." | tee -a "$LOG_DIR/app.log"
 # python3 "$ROOT_DIR/app.py" >>"$LOG_DIR/app.log" 2>&1 &

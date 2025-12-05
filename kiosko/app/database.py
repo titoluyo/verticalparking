@@ -84,8 +84,8 @@ def init_db() -> None:
         
         db.commit()
         
-        # Initialize cabinas 01-07 if they don't exist
-        for i in range(1, 8):
+        # Initialize cabinas 01-06 if they don't exist
+        for i in range(1, 7):
             cabina_id = f"CABINA-{i:02d}"
             cur.execute(
                 """

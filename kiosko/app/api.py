@@ -120,10 +120,10 @@ def presence_stream():
 
 @bp.route("/sensors/cabins", methods=["GET"])
 def check_cabin_sensors():
-    """Check sensor status for multiple cabins (cabina-01 to cabina-07)."""
-    # Get cabin range from query params or default to cabina-01 to cabina-07
+    """Check sensor status for multiple cabins (cabina-01 to cabina-06)."""
+    # Get cabin range from query params or default to cabina-01 to cabina-06
     start_cabin = request.args.get("start", "cabina-01")
-    end_cabin = request.args.get("end", "cabina-07")
+    end_cabin = request.args.get("end", "cabina-06")
     
     # Parse cabin numbers
     try:
@@ -132,9 +132,9 @@ def check_cabin_sensors():
             end_num = int(end_cabin[7:])
             cabins = [f"cabina-{i:02d}" for i in range(start_num, end_num + 1)]
         else:
-            return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-07 format"}), 400
+            return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-06 format"}), 400
     except (ValueError, IndexError):
-        return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-07 format"}), 400
+        return jsonify({"error": "Invalid cabin format. Use cabina-01-cabina-06 format"}), 400
     
     # Get MQTT configuration from environment
     broker = os.getenv("KIOSKO_MQTT_HOST", os.getenv("MQTT_BROKER", "127.0.0.1"))
@@ -839,8 +839,10 @@ def dashboard_cabins():
                     device_id = cabin_mqtt
                     topic_entry = f"{topic_base}/{site}/{device_id}/presence/entry"
                     topic_full = f"{topic_base}/{site}/{device_id}/presence/full"
+                    topic_distance = f"{topic_base}/{site}/{device_id}/distance/event"
                     client.subscribe(topic_entry, qos=1)
                     client.subscribe(topic_full, qos=1)
+                    client.subscribe(topic_distance, qos=0)  # Distance is QoS 0
             else:
                 current_app.logger.error("MQTT connection failed with rc=%s", rc)
         
@@ -870,15 +872,23 @@ def dashboard_cabins():
                         sensor_results[cabin_mqtt] = {
                             "entry": {"present": False, "ts": None},
                             "full": {"present": False, "ts": None},
+                            "distance": {"mm": None, "ts": None},
                         }
                     
-                    if sensor == "ir1" or "entry" in msg.topic:
+                    # Handle distance messages
+                    if "distance" in msg.topic:
+                        to_mm = payload.get("to_mm")
+                        if to_mm is not None:
+                            sensor_results[cabin_mqtt]["distance"] = {"mm": int(to_mm), "ts": ts}
+                            messages_received[f"{cabin_mqtt}/distance"] = True
+                    elif sensor == "ir1" or "entry" in msg.topic:
                         sensor_results[cabin_mqtt]["entry"] = {"present": present, "ts": ts}
                         messages_received[f"{cabin_mqtt}/entry"] = True
                     elif sensor == "ir2" or "full" in msg.topic:
                         sensor_results[cabin_mqtt]["full"] = {"present": present, "ts": ts}
                         messages_received[f"{cabin_mqtt}/full"] = True
                     
+                    # Update expected count - distance is optional (non-retained), so we don't require it
                     expected_count = len(cabin_ids_mqtt) * 2
                     if len(messages_received) >= expected_count:
                         timeout_event.set()
@@ -948,6 +958,7 @@ def dashboard_cabins():
             sensor_info = sensor_results.get(mqtt_id, {})
             entry_sensor = sensor_info.get("entry", {"present": False, "ts": None})
             full_sensor = sensor_info.get("full", {"present": False, "ts": None})
+            distance_sensor = sensor_info.get("distance", {"mm": None, "ts": None})
             
             # Determine overall state
             if sensor_data_available:
@@ -980,6 +991,10 @@ def dashboard_cabins():
                     "full": {
                         "present": full_sensor.get("present", False),
                         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_sensor["ts"])) if full_sensor.get("ts") else None,
+                    },
+                    "distance": {
+                        "mm": distance_sensor.get("mm"),
+                        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(distance_sensor["ts"])) if distance_sensor.get("ts") else None,
                     },
                 },
                 "sensor_state": sensor_state,

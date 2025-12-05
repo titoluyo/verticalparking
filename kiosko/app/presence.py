@@ -111,7 +111,7 @@ class PresenceService:
         site = _env("KIOSKO_SITE_ID", _env("SITE_ID", "garage-01"))
         
         device = _env("KIOSKO_DEVICE_ID", _env("DEVICE_ID"))
-        cabins_str = _env("KIOSKO_CABINS")  # e.g., "cabina-01-cabina-07" or "cabina-01,cabina-02,cabina-03"
+        cabins_str = _env("KIOSKO_CABINS")  # e.g., "cabina-01-cabina-06" or "cabina-01,cabina-02,cabina-03"
         
         # Single-cabin mode: Use if DEVICE_ID is explicitly set and KIOSKO_CABINS is not set
         if device and not cabins_str:
@@ -128,7 +128,7 @@ class PresenceService:
                 logger=logger,
             )
         
-        # Multi-cabin mode: Parse cabins or default to cabina-01 to cabina-07
+        # Multi-cabin mode: Parse cabins or default to cabina-01 to cabina-06
         cabins = None
         if cabins_str:
             # Parse cabin range or list
@@ -155,15 +155,15 @@ class PresenceService:
                         raise ValueError("Invalid range format")
                 except (ValueError, IndexError):
                     if logger:
-                        logger.warning("Invalid cabin range format: %s, defaulting to cabina-01-cabina-07", cabins_str)
+                        logger.warning("Invalid cabin range format: %s, defaulting to cabina-01-cabina-06", cabins_str)
                     cabins = None
             else:
                 # Comma-separated list: "cabina-01,cabina-02,cabina-03"
                 cabins = [c.strip() for c in cabins_str.split(",") if c.strip()]
         
-        # Default to cabina-01 to cabina-07 if no cabins specified
+        # Default to cabina-01 to cabina-06 if no cabins specified
         if not cabins:
-            cabins = [f"cabina-{i:02d}" for i in range(1, 8)]  # cabina-01 to cabina-07
+            cabins = [f"cabina-{i:02d}" for i in range(1, 7)]  # cabina-01 to cabina-06
         
         # Multi-cabin mode
         return cls(
