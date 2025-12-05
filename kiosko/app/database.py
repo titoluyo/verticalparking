@@ -80,8 +80,8 @@ def init_db() -> None:
             cur.execute(
                 """
                 ALTER TABLE cabinas ADD COLUMN minimum_distance INTEGER
-                """
-            )
+            """
+        )
         
         # Create index on token for fast lookups
         cur.execute(

@@ -54,19 +54,28 @@ class MotorControlService:
         # MQTT client for commands (separate from monitoring)
         self._command_client: Optional[mqtt.Client] = None
     
-    def send_motor_command(self, cabin_id: str, command: str, value: str = "1") -> bool:
+    def send_motor_command(self, command: str) -> bool:
         """Send motor control command via MQTT.
         
+        The motor control system uses a single global topic for all cabins:
+        - Topic: parking/{site}/motor
+        - Messages: "ON" to start motor, "OFF" to stop motor
+        
         Args:
-            cabin_id: Cabin ID (e.g., "cabina-01")
-            command: Command type (e.g., "start", "stop", "move-to-floor")
-            value: Command value (default: "1")
+            command: Command value ("ON" or "OFF")
         
         Returns:
             True if command sent successfully
         """
         try:
-            topic = f"{self.topic_base}/{self.site}/{cabin_id}/command/{command}"
+            # Motor control uses a single global topic, not per-cabin
+            topic = f"{self.topic_base}/{self.site}/motor"
+            
+            # Ensure command is uppercase
+            command = command.upper()
+            if command not in ["ON", "OFF"]:
+                self.logger.error(f"Invalid motor command: {command}. Must be 'ON' or 'OFF'")
+                return False
             
             # Create temporary MQTT client for command
             client = mqtt.Client(client_id=f"motor-control-{int(time.time())}")
@@ -74,48 +83,48 @@ class MotorControlService:
                 client.username_pw_set(self.username, self.password)
             
             client.connect(self.broker, self.port, 60)
-            client.publish(topic, value, qos=1, retain=False)
+            client.publish(topic, command, qos=1, retain=False)
             client.disconnect()
             
-            self.logger.info(f"Sent motor command '{command}' for {cabin_id} via topic: {topic}")
+            self.logger.info(f"Sent motor command '{command}' via topic: {topic}")
             return True
             
         except Exception as e:
             self.logger.error(f"Error sending motor command: {e}", exc_info=True)
             return False
     
-    def start_motor(self, cabin_id: str) -> bool:
+    def start_motor(self, cabin_id: str = None) -> bool:
         """Start the motor to move cabin.
         
         Args:
-            cabin_id: Cabin ID to move
+            cabin_id: Optional cabin ID (for logging, motor control is global)
         
         Returns:
             True if command sent successfully
         """
-        return self.send_motor_command(cabin_id, "start", "1")
+        return self.send_motor_command("ON")
     
-    def stop_motor(self, cabin_id: str) -> bool:
+    def stop_motor(self, cabin_id: str = None) -> bool:
         """Stop the motor.
         
         Args:
-            cabin_id: Cabin ID
+            cabin_id: Optional cabin ID (for logging, motor control is global)
         
         Returns:
             True if command sent successfully
         """
-        return self.send_motor_command(cabin_id, "stop", "0")
+        return self.send_motor_command("OFF")
     
-    def move_to_floor(self, cabin_id: str) -> bool:
-        """Send command to move cabin to floor level.
+    def move_to_floor(self, cabin_id: str = None) -> bool:
+        """Send command to move cabin to floor level (starts motor).
         
         Args:
-            cabin_id: Cabin ID to move
+            cabin_id: Optional cabin ID (for logging)
         
         Returns:
             True if command sent successfully
         """
-        return self.send_motor_command(cabin_id, "move-to-floor", "1")
+        return self.start_motor(cabin_id)
     
     def start_monitoring(
         self,
