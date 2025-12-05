@@ -111,7 +111,7 @@ def guardar_vehiculo():
             current_app.logger.warning("Printer service not available")
             flash("Ticket guardado pero impresora no disponible", "warning")
         
-        # Find next free cabin in circular order and set it as active
+        # Find next free cabin in circular order and move it to floor level
         # Start searching from the next cabin in circular order after the one we just assigned
         next_cabin_in_circle = get_next_cabin_circular(active_cabin)
         next_free_cabin = find_next_free_cabin_circular(next_cabin_in_circle, logger=current_app.logger)
@@ -119,10 +119,58 @@ def guardar_vehiculo():
         if next_free_cabin:
             # Convert DB format (CABINA-01) to PresenceService format (cabina-01)
             next_free_cabin_presence = next_free_cabin.replace("CABINA-", "cabina-").lower()
-            if presence_service.set_active_cabin(next_free_cabin_presence):
-                current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence} (circular order)")
+            
+            # Get cabin info to check minimum distance (floor level)
+            next_cabin_info = get_cabin(next_free_cabin)
+            minimum_distance = None
+            if next_cabin_info and next_cabin_info.get("minimum_distance"):
+                minimum_distance = int(next_cabin_info["minimum_distance"])
+            
+            # Get motor control service
+            motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
+            
+            if motor_service and minimum_distance:
+                # Define callback to activate cabin when it reaches floor
+                def on_floor_reached(cabin_id: str):
+                    """Callback when cabin reaches floor level."""
+                    # Convert to PresenceService format if needed
+                    cabin_id_presence = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id
+                    presence_service.set_active_cabin(cabin_id_presence)
+                    current_app.logger.info(f"Cabin {cabin_id} reached floor - activated as active cabin")
+                
+                # Start motor and monitor distance
+                current_app.logger.info(
+                    f"Starting motor to move {next_free_cabin_presence} to floor "
+                    f"(target distance: {minimum_distance}mm)"
+                )
+                
+                # Start motor
+                if motor_service.start_motor(next_free_cabin_presence):
+                    # Start monitoring distance - will auto-stop and activate cabin when floor reached
+                    motor_service.start_monitoring(
+                        target_cabin=next_free_cabin_presence,
+                        minimum_distance=minimum_distance,
+                        presence_service=presence_service,
+                        stop_callback=on_floor_reached,
+                        tolerance=10  # 10mm tolerance for floor detection
+                    )
+                    current_app.logger.info(f"Motor started and monitoring initiated for {next_free_cabin_presence}")
+                else:
+                    current_app.logger.error(f"Failed to start motor for {next_free_cabin_presence}")
+                    # Fallback: just set as active cabin
+                    presence_service.set_active_cabin(next_free_cabin_presence)
             else:
-                current_app.logger.warning(f"Failed to set active cabin to: {next_free_cabin_presence}")
+                # No motor service or no minimum distance - just set as active cabin
+                if not minimum_distance:
+                    current_app.logger.warning(
+                        f"No minimum distance configured for {next_free_cabin}, "
+                        f"cannot auto-move to floor. Setting as active cabin."
+                    )
+                
+                if presence_service.set_active_cabin(next_free_cabin_presence):
+                    current_app.logger.info(f"Set next active cabin to: {next_free_cabin_presence} (circular order)")
+                else:
+                    current_app.logger.warning(f"Failed to set active cabin to: {next_free_cabin_presence}")
         else:
             current_app.logger.warning("No free cabin found for next active cabin")
         

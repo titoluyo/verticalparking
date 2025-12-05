@@ -12,7 +12,7 @@ from .presence import presence_service_from_env
 from .printer import PrinterService
 from .video_stream import VideoStreamService
 from .qr_detector import QRDetector
-from .qr_detector import QRDetector
+from .motor_control import MotorControlService
 
 
 def create_app() -> Flask:
@@ -91,6 +91,29 @@ def create_app() -> Flask:
     except Exception as exc:
         app.logger.error("QR detector not initialized: %s", exc, exc_info=True)
         app.config["QR_DETECTOR"] = None
+    
+    # Motor control service (initialized after presence service since it needs MQTT config)
+    try:
+        presence_service = app.config.get("PRESENCE_SERVICE")
+        if presence_service:
+            app.logger.info("Initializing motor control service...")
+            motor_service = MotorControlService(
+                broker=presence_service.broker,
+                port=presence_service.port,
+                username=presence_service.username,
+                password=presence_service.password,
+                site=presence_service.site or "garage-01",
+                topic_base=presence_service.topic_base or "parking",
+                logger=app.logger
+            )
+            app.config["MOTOR_CONTROL_SERVICE"] = motor_service
+            app.logger.info("Motor control service initialized successfully")
+        else:
+            app.logger.warning("Motor control service not initialized - presence service unavailable")
+            app.config["MOTOR_CONTROL_SERVICE"] = None
+    except Exception as exc:
+        app.logger.error("Motor control service not initialized: %s", exc, exc_info=True)
+        app.config["MOTOR_CONTROL_SERVICE"] = None
 
     # Blueprints
     app.register_blueprint(routes_bp)
