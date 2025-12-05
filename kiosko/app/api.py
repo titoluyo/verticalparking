@@ -789,6 +789,22 @@ def camera_scan():
     }), 200
 
 
+def _format_timestamp(ts_value):
+    """Format timestamp to ISO string, handling both numeric and ISO string inputs."""
+    if not ts_value:
+        return None
+    
+    # If already a string (ISO format), return as-is
+    if isinstance(ts_value, str):
+        return ts_value
+    
+    # If numeric, convert to ISO format
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(float(ts_value)))
+    except (ValueError, TypeError, OSError):
+        return None
+
+
 @bp.route("/dashboard/cabins", methods=["GET"])
 def dashboard_cabins():
     """Get all cabins from database with their current sensor status.
@@ -1011,7 +1027,7 @@ def dashboard_cabins():
                     },
                     "distance": {
                         "mm": distance_sensor.get("mm"),
-                        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(distance_sensor["ts"])) if distance_sensor.get("ts") else None,
+                        "ts": _format_timestamp(distance_sensor.get("ts")),
                     },
                 },
                 "sensor_state": sensor_state,
