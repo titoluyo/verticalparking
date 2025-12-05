@@ -13,19 +13,14 @@ except ImportError:
 
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
-from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token, get_all_cabins
+from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token, get_all_cabins, update_cabin_minimum_distance, get_cabin
 from .qr_detector import QRDetector
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
-# Distance cache: stores last known distance for each cabin
-# Format: {"cabina-01": {"mm": 542, "ts": 1234567890.123}, ...}
-_distance_cache = {}
-_distance_cache_lock = threading.Lock()
-
-# Distance cache: stores last known distance for each cabin
-# Format: {"cabina-01": {"mm": 542, "ts": 1234567890.123}, ...}
+# Distance cache: stores last known distance and minimum distance for each cabin
+# Format: {"cabina-01": {"mm": 542, "min_mm": 500, "ts": 1234567890.123}, ...}
 _distance_cache = {}
 _distance_cache_lock = threading.Lock()
 
@@ -905,10 +900,49 @@ def dashboard_cabins():
                     if "distance" in msg.topic:
                         to_mm = payload.get("to_mm")
                         if to_mm is not None:
-                            distance_data = {"mm": int(to_mm), "ts": ts}
+                            distance_mm = int(to_mm)
+                            distance_data = {"mm": distance_mm, "ts": ts}
                             sensor_results[cabin_mqtt]["distance"] = distance_data
-                            # Store in cache for persistence across requests
+                            
+                            # Store in cache and update minimum distance
                             with _distance_cache_lock:
+                                cached = _distance_cache.get(cabin_mqtt, {})
+                                current_min = cached.get("min_mm")
+                                # Also check database for minimum distance
+                                db_id = cabin_map.get(cabin_mqtt)
+                                db_min = None
+                                if db_id:
+                                    try:
+                                        cabin_db = get_cabin(db_id)
+                                        if cabin_db:
+                                            try:
+                                                db_min = cabin_db["minimum_distance"]
+                                            except (KeyError, IndexError):
+                                                pass
+                                    except Exception:
+                                        pass
+                                
+                                # Use the smallest minimum from cache or database
+                                if current_min is not None and db_min is not None:
+                                    best_min = min(current_min, db_min)
+                                elif current_min is not None:
+                                    best_min = current_min
+                                elif db_min is not None:
+                                    best_min = db_min
+                                else:
+                                    best_min = None
+                                
+                                # Update minimum if this distance is smaller (closer to sensor = lower number)
+                                if best_min is None or distance_mm < best_min:
+                                    distance_data["min_mm"] = distance_mm
+                                    # Update database with new minimum distance
+                                    if db_id:
+                                        try:
+                                            update_cabin_minimum_distance(db_id, distance_mm)
+                                        except Exception as e:
+                                            current_app.logger.debug("Could not update minimum distance in DB: %s", e)
+                                else:
+                                    distance_data["min_mm"] = best_min
                                 _distance_cache[cabin_mqtt] = distance_data
                             messages_received[f"{cabin_mqtt}/distance"] = True
                     elif sensor == "ir1" or "entry" in msg.topic:
@@ -996,6 +1030,12 @@ def dashboard_cabins():
             except (KeyError, IndexError):
                 updated_at = None
             
+            # Get minimum distance from database (floor level)
+            try:
+                minimum_distance = cabin_row["minimum_distance"]
+            except (KeyError, IndexError):
+                minimum_distance = None
+            
             # Get corresponding MQTT ID
             if db_id.startswith("CABINA-"):
                 mqtt_id = db_id.replace("CABINA-", "cabina-").lower()
@@ -1008,12 +1048,25 @@ def dashboard_cabins():
             full_sensor = sensor_info.get("full", {"present": False, "ts": None})
             distance_sensor = sensor_info.get("distance", {"mm": None, "ts": None})
             
+            # Initialize minimum distance from database
+            min_distance_from_db = minimum_distance
+            
+            # Initialize cache with minimum distance from database if not already set
+            with _distance_cache_lock:
+                if mqtt_id not in _distance_cache:
+                    _distance_cache[mqtt_id] = {}
+                if _distance_cache[mqtt_id].get("min_mm") is None and min_distance_from_db is not None:
+                    _distance_cache[mqtt_id]["min_mm"] = min_distance_from_db
+            
             # If no distance from MQTT, check persistent cache
             if distance_sensor.get("mm") is None:
                 with _distance_cache_lock:
                     cached_distance = _distance_cache.get(mqtt_id)
                     if cached_distance:
                         distance_sensor = cached_distance.copy()
+                        # Ensure minimum is set
+                        if distance_sensor.get("min_mm") is None:
+                            distance_sensor["min_mm"] = min_distance_from_db
             
             # Also check presence service cache for distance data (fallback)
             if distance_sensor.get("mm") is None and presence_service:
@@ -1027,12 +1080,17 @@ def dashboard_cabins():
                             # Convert cached distance to our format and store in cache
                             distance_sensor = {
                                 "mm": int(cached_to_mm),
-                                "ts": cached_distance.get("ts")
+                                "ts": cached_distance.get("ts"),
+                                "min_mm": min_distance_from_db
                             }
                             with _distance_cache_lock:
                                 _distance_cache[mqtt_id] = distance_sensor
                 except Exception as e:
                     current_app.logger.debug("Could not get cached distance from presence service: %s", e)
+            
+            # Ensure minimum distance is set (from cache, DB, or None)
+            if distance_sensor.get("min_mm") is None:
+                distance_sensor["min_mm"] = min_distance_from_db
             
             # Determine overall state
             if sensor_data_available:
@@ -1068,6 +1126,7 @@ def dashboard_cabins():
                     },
                     "distance": {
                         "mm": distance_sensor.get("mm"),
+                        "min_mm": distance_sensor.get("min_mm") if distance_sensor.get("min_mm") is not None else minimum_distance,
                         "ts": _format_timestamp(distance_sensor.get("ts")),
                     },
                 },

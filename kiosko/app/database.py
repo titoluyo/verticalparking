@@ -64,10 +64,24 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS cabinas (
                 id TEXT PRIMARY KEY,
                 estado TEXT NOT NULL DEFAULT 'free' CHECK(estado IN ('free', 'busy')),
+                minimum_distance INTEGER,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+        
+        # Add minimum_distance column if it doesn't exist (for existing databases)
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM pragma_table_info('cabinas') WHERE name='minimum_distance'
+            """
+        )
+        if cur.fetchone()[0] == 0:
+            cur.execute(
+                """
+                ALTER TABLE cabinas ADD COLUMN minimum_distance INTEGER
+                """
+            )
         
         # Create index on token for fast lookups
         cur.execute(
@@ -83,6 +97,24 @@ def init_db() -> None:
         )
         
         db.commit()
+        
+        # Add minimum_distance column if it doesn't exist (for existing databases)
+        try:
+            cur.execute(
+                """
+                SELECT COUNT(*) FROM pragma_table_info('cabinas') WHERE name='minimum_distance'
+                """
+            )
+            if cur.fetchone()[0] == 0:
+                cur.execute(
+                    """
+                    ALTER TABLE cabinas ADD COLUMN minimum_distance INTEGER
+                    """
+                )
+                db.commit()
+        except Exception:
+            # Column might already exist or table doesn't exist yet
+            pass
         
         # Remove cabin 07 if it exists (no longer used)
         cur.execute("DELETE FROM cabinas WHERE id = 'CABINA-07'")
@@ -206,6 +238,29 @@ def get_all_cabins() -> Iterable[sqlite3.Row]:
         Iterable of cabin rows
     """
     return query("SELECT * FROM cabinas ORDER BY id ASC")
+
+
+def update_cabin_minimum_distance(cabina_id: str, minimum_distance: int) -> bool:
+    """Update minimum distance for a cabin (floor level).
+    
+    Args:
+        cabina_id: Cabin ID
+        minimum_distance: Minimum distance in mm (closest to sensor = floor level)
+        
+    Returns:
+        True if successful
+    """
+    try:
+        execute(
+            """
+            UPDATE cabinas SET minimum_distance = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (minimum_distance, cabina_id)
+        )
+        return True
+    except Exception:
+        return False
 
 
 # Cleanup functions

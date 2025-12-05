@@ -150,6 +150,13 @@
                 ${cabin.sensors.distance && cabin.sensors.distance.mm !== null ? cabin.sensors.distance.mm : '--'}
               </span>
             </div>
+            
+            <div class="sensor-item">
+              <span class="sensor-label">F:</span>
+              <span class="sensor-value ${cabin.sensors.distance && cabin.sensors.distance.min_mm !== null ? '' : 'sensor-value--muted'}">
+                ${cabin.sensors.distance && cabin.sensors.distance.min_mm !== null ? cabin.sensors.distance.min_mm : '--'}
+              </span>
+            </div>
           </div>
         </div>
       `;
