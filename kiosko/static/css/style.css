@@ -134,6 +134,7 @@ button, .btn, input { min-height: 48px; }
 .sensor-label { font-size: 12px; color: var(--muted); font-weight: 500; }
 .sensor-value { font-size: 16px; font-weight: 600; }
 .sensor-value--active { color: var(--primary); }
+.sensor-value--muted { color: var(--muted); opacity: 0.6; }
 
 @media (max-width: 768px) {
   .cabins-grid { grid-template-columns: repeat(2, 1fr); }

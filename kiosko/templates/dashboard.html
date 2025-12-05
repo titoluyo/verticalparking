@@ -144,14 +144,12 @@
               </span>
             </div>
             
-            ${cabin.sensors.distance && cabin.sensors.distance.mm !== null ? `
             <div class="sensor-item">
               <span class="sensor-label">D:</span>
-              <span class="sensor-value">
-                ${cabin.sensors.distance.mm}
+              <span class="sensor-value ${cabin.sensors.distance && cabin.sensors.distance.mm !== null ? '' : 'sensor-value--muted'}">
+                ${cabin.sensors.distance && cabin.sensors.distance.mm !== null ? cabin.sensors.distance.mm : '--'}
               </span>
             </div>
-            ` : ''}
           </div>
         </div>
       `;

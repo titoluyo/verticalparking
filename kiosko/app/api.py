@@ -954,11 +954,28 @@ def dashboard_cabins():
             else:
                 mqtt_id = f"cabina-{db_id.zfill(2)}"
             
-            # Get sensor data if available
+            # Get sensor data from MQTT results
             sensor_info = sensor_results.get(mqtt_id, {})
             entry_sensor = sensor_info.get("entry", {"present": False, "ts": None})
             full_sensor = sensor_info.get("full", {"present": False, "ts": None})
             distance_sensor = sensor_info.get("distance", {"mm": None, "ts": None})
+            
+            # Also check presence service cache for distance data (it maintains cached values)
+            if presence_service and distance_sensor.get("mm") is None:
+                try:
+                    # Get snapshot from presence service for this cabin
+                    snapshot = presence_service.snapshot(cabin_id=mqtt_id) if hasattr(presence_service, 'snapshot') else None
+                    if snapshot and snapshot.get("distance"):
+                        cached_distance = snapshot["distance"]
+                        cached_to_mm = cached_distance.get("to_mm")
+                        if cached_to_mm is not None:
+                            # Convert cached distance to our format
+                            distance_sensor = {
+                                "mm": int(cached_to_mm),
+                                "ts": cached_distance.get("ts")
+                            }
+                except Exception as e:
+                    current_app.logger.debug("Could not get cached distance from presence service: %s", e)
             
             # Determine overall state
             if sensor_data_available:
