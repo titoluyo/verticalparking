@@ -19,6 +19,16 @@ from .qr_detector import QRDetector
 
 bp = Blueprint("api", __name__, url_prefix="/api")
 
+# Distance cache: stores last known distance for each cabin
+# Format: {"cabina-01": {"mm": 542, "ts": 1234567890.123}, ...}
+_distance_cache = {}
+_distance_cache_lock = threading.Lock()
+
+# Distance cache: stores last known distance for each cabin
+# Format: {"cabina-01": {"mm": 542, "ts": 1234567890.123}, ...}
+_distance_cache = {}
+_distance_cache_lock = threading.Lock()
+
 
 @bp.route("/presence", methods=["GET"])
 def presence_status():
@@ -895,7 +905,11 @@ def dashboard_cabins():
                     if "distance" in msg.topic:
                         to_mm = payload.get("to_mm")
                         if to_mm is not None:
-                            sensor_results[cabin_mqtt]["distance"] = {"mm": int(to_mm), "ts": ts}
+                            distance_data = {"mm": int(to_mm), "ts": ts}
+                            sensor_results[cabin_mqtt]["distance"] = distance_data
+                            # Store in cache for persistence across requests
+                            with _distance_cache_lock:
+                                _distance_cache[cabin_mqtt] = distance_data
                             messages_received[f"{cabin_mqtt}/distance"] = True
                     elif sensor == "ir1" or "entry" in msg.topic:
                         sensor_results[cabin_mqtt]["entry"] = {"present": present, "ts": ts}
@@ -922,6 +936,24 @@ def dashboard_cabins():
                     active_cabin_mqtt = active_cabin_db.replace("CABINA-", "cabina-").lower()
                 elif active_cabin_db.startswith("cabina-"):
                     active_cabin_mqtt = active_cabin_db.lower()
+            
+            # Populate distance cache from presence service state (it maintains distance for all cabins)
+            try:
+                if hasattr(presence_service, '_state') and hasattr(presence_service, '_lock'):
+                    with presence_service._lock:
+                        for cabin_id, cabin_state in presence_service._state.items():
+                            if isinstance(cabin_state, dict) and "distance" in cabin_state:
+                                distance_data = cabin_state["distance"]
+                                to_mm = distance_data.get("to_mm")
+                                if to_mm is not None:
+                                    # Update cache with distance from presence service
+                                    with _distance_cache_lock:
+                                        _distance_cache[cabin_id] = {
+                                            "mm": int(to_mm),
+                                            "ts": distance_data.get("ts")
+                                        }
+            except Exception as e:
+                current_app.logger.debug("Could not populate distance cache from presence service: %s", e)
         
         # Get sensor data via MQTT (with timeout if MQTT unavailable)
         client = mqtt.Client(client_id=f"kiosko-dashboard-{int(time.time())}", clean_session=True)
@@ -976,8 +1008,15 @@ def dashboard_cabins():
             full_sensor = sensor_info.get("full", {"present": False, "ts": None})
             distance_sensor = sensor_info.get("distance", {"mm": None, "ts": None})
             
-            # Also check presence service cache for distance data (it maintains cached values)
-            if presence_service and distance_sensor.get("mm") is None:
+            # If no distance from MQTT, check persistent cache
+            if distance_sensor.get("mm") is None:
+                with _distance_cache_lock:
+                    cached_distance = _distance_cache.get(mqtt_id)
+                    if cached_distance:
+                        distance_sensor = cached_distance.copy()
+            
+            # Also check presence service cache for distance data (fallback)
+            if distance_sensor.get("mm") is None and presence_service:
                 try:
                     # Get snapshot from presence service for this cabin
                     snapshot = presence_service.snapshot(cabin_id=mqtt_id) if hasattr(presence_service, 'snapshot') else None
@@ -985,11 +1024,13 @@ def dashboard_cabins():
                         cached_distance = snapshot["distance"]
                         cached_to_mm = cached_distance.get("to_mm")
                         if cached_to_mm is not None:
-                            # Convert cached distance to our format
+                            # Convert cached distance to our format and store in cache
                             distance_sensor = {
                                 "mm": int(cached_to_mm),
                                 "ts": cached_distance.get("ts")
                             }
+                            with _distance_cache_lock:
+                                _distance_cache[mqtt_id] = distance_sensor
                 except Exception as e:
                     current_app.logger.debug("Could not get cached distance from presence service: %s", e)
             
