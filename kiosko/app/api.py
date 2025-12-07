@@ -1591,7 +1591,9 @@ def debug_cabin(cabin_id: str):
         cabin_id = f"cabina-{cabin_id.zfill(2)}"
     
     import time
+    current_time = time.time()
     
+    # Get data in a single lock acquisition
     with service._lock:
         if cabin_id not in service._state:
             return jsonify({"error": f"Cabin {cabin_id} not found"}), 404
@@ -1602,29 +1604,55 @@ def debug_cabin(cabin_id: str):
         distance_data = cabin_state.get("distance", {})
         previous = cabin_state.get("previous", (False, False))
         
-        # Get snapshot for this cabin
-        snapshot = service.snapshot(cabin_id=cabin_id)
+        # Calculate state locally instead of calling snapshot() to avoid lock issues
+        entry_present = bool(entry_data.get("present", False))
+        full_present = bool(full_data.get("present", False))
+        prev_entry, prev_full = previous
         
-        return jsonify({
+        # Determine state locally (same logic as _determine_state)
+        if not entry_present and not full_present:
+            state = "free"
+            message = "Espacio libre"
+        elif entry_present and not full_present:
+            if not prev_entry and not prev_full:
+                state = "transitioning"
+                message = "Vehiculo ingresando..."
+            elif prev_entry and prev_full:
+                state = "transitioning"
+                message = "Vehiculo saliendo..."
+            else:
+                state = "transitioning"
+                message = "Vehiculo ingresando..." if not prev_entry else "Vehiculo saliendo..."
+        elif entry_present and full_present:
+            state = "entered"
+            message = "Vehiculo ingresado"
+        else:
+            state = "free"
+            message = "Espacio libre"
+        
+        entry_ts = entry_data.get("ts")
+        full_ts = full_data.get("ts")
+        
+        result = {
             "cabin_id": cabin_id,
             "is_active": (cabin_id == service._active_cabin),
             "sensors": {
                 "entry": {
-                    "present": bool(entry_data.get("present", False)),
-                    "ts": entry_data.get("ts"),
-                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry_data.get("ts"))) if entry_data.get("ts") else None,
-                    "age_seconds": (time.time() - entry_data.get("ts")) if entry_data.get("ts") else None,
+                    "present": entry_present,
+                    "ts": entry_ts,
+                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry_ts)) if entry_ts else None,
+                    "age_seconds": round((current_time - entry_ts), 1) if entry_ts else None,
                 },
                 "full": {
-                    "present": bool(full_data.get("present", False)),
-                    "ts": full_data.get("ts"),
-                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_data.get("ts"))) if full_data.get("ts") else None,
-                    "age_seconds": (time.time() - full_data.get("ts")) if full_data.get("ts") else None,
+                    "present": full_present,
+                    "ts": full_ts,
+                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_ts)) if full_ts else None,
+                    "age_seconds": round((current_time - full_ts), 1) if full_ts else None,
                 },
             },
             "previous_state": {
-                "entry": previous[0],
-                "full": previous[1],
+                "entry": prev_entry,
+                "full": prev_full,
             },
             "distance": {
                 "from_mm": distance_data.get("from_mm"),
@@ -1632,9 +1660,14 @@ def debug_cabin(cabin_id: str):
                 "ts": distance_data.get("ts"),
                 "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(distance_data.get("ts"))) if distance_data.get("ts") else None,
             },
-            "snapshot": snapshot,
+            "computed_state": {
+                "state": state,
+                "message": message,
+            },
             "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
+        }
+    
+    return jsonify(result)
 
 
 @bp.route("/presence/debug/reset-previous/<cabin_id>", methods=["POST"])

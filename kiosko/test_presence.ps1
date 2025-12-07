@@ -78,7 +78,7 @@ try {
         Write-Host "   Entry sensor: $($response.sensors.entry.present) (age: $([math]::Round($response.sensors.entry.age_seconds, 1))s)" -ForegroundColor Gray
         Write-Host "   Full sensor: $($response.sensors.full.present) (age: $([math]::Round($response.sensors.full.age_seconds, 1))s)" -ForegroundColor Gray
         Write-Host "   Previous state: entry=$($response.previous_state.entry), full=$($response.previous_state.full)" -ForegroundColor DarkGray
-        Write-Host "   Snapshot state: $($response.snapshot.state) - $($response.snapshot.message)" -ForegroundColor $(if ($response.snapshot.state -eq "entered") { "Green" } elseif ($response.snapshot.state -eq "free") { "White" } else { "Yellow" })
+        Write-Host "   Computed state: $($response.computed_state.state) - $($response.computed_state.message)" -ForegroundColor $(if ($response.computed_state.state -eq "entered") { "Green" } elseif ($response.computed_state.state -eq "free") { "White" } else { "Yellow" })
     }
 } catch {
     Write-Host "   Error: $_" -ForegroundColor Red
