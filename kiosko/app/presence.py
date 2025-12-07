@@ -71,9 +71,14 @@ class PresenceService:
         self._calibration_complete_callbacks: list[Callable[[str, Dict[str, Any]], None]] = []
         self._callbacks_lock = threading.Lock()
         if self._multi_cabin_mode and cabins:
-            # Default to first cabin
-            self._active_cabin = cabins[0]
-            self.logger.info("Active cabin initialized to: %s", self._active_cabin)
+            # Default to first cabin (cabina-01)
+            # Ensure cabins list is sorted to guarantee cabina-01 is first
+            sorted_cabins = sorted(cabins)
+            self._active_cabin = sorted_cabins[0]
+            # Update self.cabins to maintain sorted order
+            self.cabins = sorted_cabins
+            self.logger.info("Active cabin initialized to: %s (from sorted cabins: %s)", 
+                           self._active_cabin, sorted_cabins)
         
         if self._multi_cabin_mode:
             # Initialize state for each cabin
@@ -169,6 +174,9 @@ class PresenceService:
         # Default to cabina-01 to cabina-06 if no cabins specified
         if not cabins:
             cabins = [f"cabina-{i:02d}" for i in range(1, 7)]  # cabina-01 to cabina-06
+        
+        # Ensure cabins are sorted (cabina-01 should always be first)
+        cabins = sorted(cabins)
         
         # Multi-cabin mode
         return cls(
@@ -729,16 +737,28 @@ class PresenceService:
             
             # Auto-switch active cabin if vehicle is detected entering a non-active cabin
             # This allows detection in any cabin, not just the active one
+            # IMPORTANT: Only auto-switch if we have recent data (within last 5 seconds)
+            # This prevents auto-switching on startup from stale MQTT retained messages
             is_active = (cabin_id == self._active_cabin)
             prev_entry = self._state[cabin_id].get("previous", (False, False))[0] if cabin_id in self._state else False
             
-            if not is_active and key == "entry" and present and not prev_entry:
+            # Check if this is a recent sensor reading (not a stale retained message)
+            sensor_ts = ts
+            current_time = time.time()
+            is_recent = (current_time - sensor_ts) < 5 if sensor_ts else False
+            
+            if not is_active and key == "entry" and present and not prev_entry and is_recent:
                 # Vehicle just started entering a non-active cabin - switch to that cabin
+                # Only switch if this is a recent reading (not a stale retained message)
                 old_active = self._active_cabin
                 self._active_cabin = cabin_id
-                self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s", 
-                               cabin_id, old_active, cabin_id)
+                self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s (recent data: ts=%s)", 
+                               cabin_id, old_active, cabin_id, sensor_ts)
                 should_notify_switch = True
+            elif not is_active and key == "entry" and present and not prev_entry and not is_recent:
+                # Stale data - ignore to prevent auto-switch on startup
+                self.logger.debug("Ignoring stale sensor data for auto-switch: cabin=%s entry=%s ts=%s (age=%.1fs)", 
+                                cabin_id, present, sensor_ts, current_time - sensor_ts if sensor_ts else 0)
             
             self._state[cabin_id][key] = {"present": present, "ts": ts}
             # Update previous combined state for this cabin
