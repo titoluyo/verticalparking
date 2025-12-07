@@ -1,5 +1,6 @@
 """Lightweight JSON API for kiosk front-end widgets."""
 import json
+import logging
 import os
 import queue
 import threading
@@ -20,6 +21,9 @@ from .qr_detector import QRDetector
 
 
 bp = Blueprint("api", __name__, url_prefix="/api")
+
+# Module-level logger for MQTT callbacks (they run in separate threads)
+logger = logging.getLogger(__name__)
 
 # Distance cache: stores last known distance and minimum distance for each cabin
 # Format: {"cabina-01": {"mm": 542, "min_mm": 500, "ts": 1234567890.123}, ...}
@@ -1104,7 +1108,7 @@ def dashboard_cabins():
                     client.subscribe(topic_full, qos=1)
                     client.subscribe(topic_distance, qos=0)  # Distance is QoS 0
             else:
-                current_app.logger.error("MQTT connection failed with rc=%s", rc)
+                logger.error("MQTT connection failed with rc=%s", rc)
         
         def on_message(client, userdata, msg):
             try:
@@ -1190,11 +1194,11 @@ def dashboard_cabins():
                                             # Only update if floor level is not already set (NULL)
                                             if current_floor is None:
                                                 update_cabin_minimum_distance(db_id, distance_mm)
-                                                current_app.logger.debug(f"Auto-updated minimum_distance for {db_id} to {distance_mm}mm (was NULL)")
+                                                logger.debug(f"Auto-updated minimum_distance for {db_id} to {distance_mm}mm (was NULL)")
                                             else:
-                                                current_app.logger.debug(f"Skipping auto-update of minimum_distance for {db_id} - already set to {current_floor}mm (manual value preserved)")
+                                                logger.debug(f"Skipping auto-update of minimum_distance for {db_id} - already set to {current_floor}mm (manual value preserved)")
                                         except Exception as e:
-                                            current_app.logger.debug("Could not update minimum distance in DB: %s", e)
+                                            logger.debug("Could not update minimum distance in DB: %s", e)
                                 else:
                                     distance_data["min_mm"] = best_min
                                 _distance_cache[cabin_mqtt] = distance_data
@@ -1211,7 +1215,7 @@ def dashboard_cabins():
                     if len(messages_received) >= expected_count:
                         timeout_event.set()
             except Exception as e:
-                current_app.logger.warning("Error processing MQTT message: %s", e)
+                logger.warning("Error processing MQTT message: %s", e)
         
         # Get active cabin for reference
         presence_service = current_app.config.get("PRESENCE_SERVICE")
