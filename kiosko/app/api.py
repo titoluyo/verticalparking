@@ -1387,6 +1387,10 @@ def dashboard_cabins():
                 distance_sensor["min_mm"] = min_distance_from_db
             
             # Determine overall state
+            # Check if cabin has active ticket (vehicle stored inside)
+            from .database import has_active_ticket_direct
+            has_active_ticket = has_active_ticket_direct(db_id)
+            
             # Use PresenceService data if available (more reliable), otherwise fall back to MQTT temp connection
             if presence_data_available or sensor_data_available:
                 if full_sensor.get("present", False):
@@ -1395,12 +1399,22 @@ def dashboard_cabins():
                 elif entry_sensor.get("present", False):
                     sensor_state = "transitioning"
                     sensor_message = "Vehículo ingresando..."
+                elif has_active_ticket:
+                    # Cabin has active ticket (vehicle stored) but sensors show no presence
+                    # This is normal - sensors only detect movement, not continuous presence
+                    sensor_state = "occupied"
+                    sensor_message = "Vehículo guardado"
                 else:
                     sensor_state = "free"
                     sensor_message = "Espacio libre"
             else:
-                sensor_state = "unknown"
-                sensor_message = "Sensor no disponible"
+                # No sensor data available - rely on ticket status
+                if has_active_ticket:
+                    sensor_state = "occupied"
+                    sensor_message = "Vehículo guardado"
+                else:
+                    sensor_state = "unknown"
+                    sensor_message = "Sensor no disponible"
             
             is_active = (mqtt_id == active_cabin_mqtt) if active_cabin_mqtt else False
             
