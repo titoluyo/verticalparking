@@ -283,7 +283,26 @@ class PresenceService:
             if self._active_cabin != cabin_id:
                 old_cabin = self._active_cabin
                 self._active_cabin = cabin_id
-                self.logger.info("Active cabin changed: %s -> %s", old_cabin, cabin_id)
+                
+                # IMPORTANT: When changing active cabin, reset the "previous" state to match current sensor state
+                # This ensures that the next sensor update can correctly detect transitions
+                if cabin_id in self._state:
+                    current_entry = bool(self._state[cabin_id]["entry"]["present"])
+                    current_full = bool(self._state[cabin_id]["full"]["present"])
+                    # Set previous state to current state so next update can detect transitions correctly
+                    self._state[cabin_id]["previous"] = (current_entry, current_full)
+                    self.logger.info("Active cabin changed: %s -> %s, reset previous state to current: (%s, %s)", 
+                                   old_cabin, cabin_id, current_entry, current_full)
+                else:
+                    # Initialize state if it doesn't exist
+                    self._state[cabin_id] = {
+                        "entry": {"present": False, "ts": None},
+                        "full": {"present": False, "ts": None},
+                        "previous": (False, False),
+                        "distance": {"from_mm": None, "to_mm": None, "ts": None},
+                    }
+                    self.logger.info("Active cabin changed: %s -> %s, initialized state for new cabin", old_cabin, cabin_id)
+                
                 should_notify = True
             else:
                 self.logger.info("Active cabin already set to %s (no change)", cabin_id)
@@ -330,8 +349,8 @@ class PresenceService:
                 full_present = bool(cabin_state["full"]["present"])
                 prev_entry, prev_full = cabin_state["previous"]
                 
-                # Log sensor state for debugging
-                self.logger.debug(f"Snapshot for {target_cabin} (active): entry={entry_present}, full={full_present}, prev=({prev_entry}, {prev_full}), entry_ts={cabin_state['entry']['ts']}, full_ts={cabin_state['full']['ts']}")
+                # Log sensor state for debugging (use info level for active cabin to help diagnose issues)
+                self.logger.info(f"Snapshot for {target_cabin} (active): entry={entry_present}, full={full_present}, prev=({prev_entry}, {prev_full}), entry_ts={cabin_state['entry']['ts']}, full_ts={cabin_state['full']['ts']}")
                 
                 # IMPORTANT: Always use sensor data for the active cabin to detect vehicle entrance.
                 # After storing a vehicle:
