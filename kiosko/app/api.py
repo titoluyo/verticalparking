@@ -759,6 +759,109 @@ def stop_calibration(cabin_id: str):
     }), 200
 
 
+@bp.route("/cabin/<cabin_id>/floor-level", methods=["POST"])
+def set_floor_level(cabin_id: str):
+    """Set the floor level (minimum distance) for a cabin manually.
+    
+    This is a simple endpoint to set the floor level without calibration.
+    Use this when you know the floor level distance in mm.
+    
+    Request body (JSON):
+    {
+        "floor_level_mm": 450
+    }
+    
+    Or via query parameter:
+    ?floor_level_mm=450
+    
+    Example with curl:
+    curl -X POST http://localhost:5000/api/cabin/cabina-01/floor-level -H "Content-Type: application/json" -d '{"floor_level_mm": 450}'
+    curl -X POST "http://localhost:5000/api/cabin/CABINA-01/floor-level?floor_level_mm=450"
+    
+    Args:
+        cabin_id: Cabin ID (e.g., "cabina-01", "CABINA-01", or "01")
+    
+    Returns:
+        JSON with success status
+    """
+    # Normalize cabin ID format
+    if cabin_id.startswith("CABINA-"):
+        cabin_id_db = cabin_id
+        cabin_id_mqtt = cabin_id.replace("CABINA-", "cabina-").lower()
+    elif cabin_id.startswith("cabina-"):
+        cabin_id_db = cabin_id.replace("cabina-", "CABINA-").upper()
+        cabin_id_mqtt = cabin_id.lower()
+    else:
+        # Try to parse as number
+        try:
+            num = int(cabin_id)
+            cabin_id_db = f"CABINA-{num:02d}"
+            cabin_id_mqtt = f"cabina-{num:02d}"
+        except ValueError:
+            return jsonify({"error": f"Invalid cabin_id format: {cabin_id}"}), 400
+    
+    # Get floor level from request body or query parameter
+    data = request.get_json() or {}
+    floor_level_mm = data.get("floor_level_mm")
+    
+    if floor_level_mm is None:
+        # Try query parameter
+        floor_level_mm = request.args.get("floor_level_mm")
+    
+    if floor_level_mm is None:
+        return jsonify({"error": "Missing 'floor_level_mm' in request body or query parameter"}), 400
+    
+    try:
+        floor_level_mm = int(floor_level_mm)
+        if floor_level_mm <= 0 or floor_level_mm > 5000:
+            return jsonify({"error": f"Invalid floor_level_mm: {floor_level_mm}. Must be between 1 and 5000 mm"}), 400
+    except (ValueError, TypeError):
+        return jsonify({"error": f"Invalid floor_level_mm value: {floor_level_mm}. Must be an integer"}), 400
+    
+    # Update database
+    success = update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
+    if not success:
+        return jsonify({"error": "Failed to update floor level in database"}), 500
+    
+    current_app.logger.info(f"Updated floor level for {cabin_id_db} to {floor_level_mm}mm (manual set)")
+    
+    # Optional: Also send to firmware via MQTT command (if firmware supports it)
+    # This would be: {"set_floor_level": 450}
+    presence_service = current_app.config.get("PRESENCE_SERVICE")
+    if presence_service:
+        try:
+            broker = presence_service.broker
+            port = presence_service.port
+            username = presence_service.username
+            password = presence_service.password
+            site = presence_service.site or "garage-01"
+            topic_base = presence_service.topic_base or "parking"
+            
+            # Send command to firmware to update its stored floor level
+            command_topic = f"{topic_base}/{site}/{cabin_id_mqtt}/cmd"
+            command_payload = json.dumps({"set_floor_level": floor_level_mm})
+            
+            client = mqtt.Client(client_id=f"kiosko-set-floor-{int(time.time())}")
+            if username and password:
+                client.username_pw_set(username, password)
+            
+            client.connect(broker, port, 60)
+            client.publish(command_topic, command_payload, qos=1, retain=False)
+            client.disconnect()
+            
+            current_app.logger.info(f"Sent set_floor_level command to {cabin_id_mqtt} firmware via MQTT")
+        except Exception as e:
+            current_app.logger.warning(f"Failed to send floor level to firmware: {e}")
+            # Don't fail the request if firmware update fails - DB update succeeded
+    
+    return jsonify({
+        "success": True,
+        "message": f"Floor level set to {floor_level_mm}mm for {cabin_id_db}",
+        "cabin_id": cabin_id_db,
+        "floor_level_mm": floor_level_mm
+    }), 200
+
+
 @bp.route("/cabin/move-to-floor", methods=["POST"])
 def move_cabin_to_floor():
     """Send MQTT command to move cabin to floor level.
