@@ -364,7 +364,7 @@ class PresenceService:
                     self.logger.debug(f"Stale sensor data for {target_cabin} showing entered, treating as free (entry_ts={entry_ts}, full_ts={full_ts})")
                 
                 state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
-                self.logger.debug(f"Snapshot state determined for {target_cabin}: state={state_info['state']}, message={state_info['message']}")
+                self.logger.info(f"Snapshot state for {target_cabin} (active): entry={entry_present}, full={full_present}, prev=({prev_entry}, {prev_full}) -> state={state_info['state']}, message={state_info['message']}")
                 updated_at = None
                 for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
                     if ts:
@@ -436,6 +436,9 @@ class PresenceService:
     def _determine_state(self, entry_present: bool, full_present: bool, 
                         prev_entry: bool = False, prev_full: bool = False) -> Dict[str, str]:
         """Determine the current state and message based on sensor values and previous state."""
+        # Log state determination for debugging
+        self.logger.debug(f"_determine_state: entry={entry_present}, full={full_present}, prev=({prev_entry}, {prev_full})")
+        
         # State 1: Both off -> Free
         if not entry_present and not full_present:
             state = "free"
@@ -445,34 +448,46 @@ class PresenceService:
         elif entry_present and not full_present:
             # Check if coming from both off (entering) or from both on (exiting)
             if not prev_entry and not prev_full:
+                # Coming from free - vehicle is entering
                 state = "transitioning"
                 message = "Vehiculo ingresando..."
             elif prev_entry and prev_full:
+                # Coming from both on - vehicle is exiting (full sensor turned off first)
                 state = "transitioning"
                 message = "Vehiculo saliendo..."
-            else:
-                # Maintain previous transition state if unclear
+            elif prev_entry and not prev_full:
+                # Already in this state (entry on, full off) - maintain "ingresando"
                 state = "transitioning"
-                message = "Vehiculo ingresando..." if not prev_entry else "Vehiculo saliendo..."
+                message = "Vehiculo ingresando..."
+            else:
+                # Edge case - default to entering
+                state = "transitioning"
+                message = "Vehiculo ingresando..."
         
         # State 3: Both on -> Fully entered
-        # IMPORTANT: Only show "entered" if we have a valid transition from previous state
-        # This prevents showing "entered" on startup if sensors are stuck on from retained MQTT messages
+        # IMPORTANT: When both sensors are on, the vehicle is fully entered
+        # We should show "entered" unless we're coming from a "saliendo" state
         elif entry_present and full_present:
             # If previous state was also both on, maintain "entered"
-            # If previous state was different, this is a new entry
             if prev_entry and prev_full:
                 # Already in entered state - maintain it
                 state = "entered"
                 message = "Vehiculo ingresado"
+            # If coming from free (both off), vehicle just entered
             elif not prev_entry and not prev_full:
                 # Transition from free to both on - vehicle just entered
                 state = "entered"
                 message = "Vehiculo ingresado"
+            # If coming from entry-only (entry=True, full=False), vehicle just finished entering
+            elif prev_entry and not prev_full:
+                # Transition from "ingresando" to "ingresado" - vehicle fully entered
+                state = "entered"
+                message = "Vehiculo ingresado"
             else:
-                # Transitioning state - vehicle is entering
-                state = "transitioning"
-                message = "Vehiculo ingresando..."
+                # Coming from full-only (shouldn't happen normally) or other edge case
+                # Still show as entered since both sensors are on
+                state = "entered"
+                message = "Vehiculo ingresado"
         
         # State 4: Entry off, Full on -> Shouldn't happen normally, treat as free
         else:
