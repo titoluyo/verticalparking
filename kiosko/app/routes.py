@@ -3,12 +3,16 @@ Flask routes for the kiosk home screen.
 Currently exposes simple actions for storing or retrieving vehicles.
 """
 import uuid
+import logging
 from flask import Blueprint, current_app, render_template, redirect, url_for, flash, request, Response
 from .database import (
     create_ticket, update_cabin_status, find_free_cabin, get_cabin,
     get_ticket_by_token, find_next_free_cabin_circular, get_next_cabin_circular,
     has_active_ticket, update_cabin_minimum_distance
 )
+
+# Module-level logger for MQTT callbacks (they run in separate threads)
+logger = logging.getLogger(__name__)
 
 
 bp = Blueprint("routes", __name__)
@@ -131,58 +135,84 @@ def guardar_vehiculo():
             
             # Always try to start motor if service is available
             if motor_service:
+                # Store references that will be needed in the callback
+                # Note: The callback runs in MQTT thread, so we need to pass services directly
+                motor_service_ref = motor_service
+                presence_service_ref = presence_service
+                
                 # Define callback to handle floor reached event
+                # This callback will be called from MQTT thread, so we need to use module logger
+                # and cannot use Flask's current_app context
                 def on_floor_reached(cabin_id: str, event_data: dict):
                     """Callback when cabin reaches floor level (from MQTT event)."""
-                    # Convert to PresenceService format if needed
-                    cabin_id_presence = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id
-                    
-                    # Stop motor
-                    motor_service.stop_motor(cabin_id_presence)
-                    current_app.logger.info(f"Motor stopped for {cabin_id_presence} (floor reached)")
-                    
-                    # Activate cabin
-                    presence_service.set_active_cabin(cabin_id_presence)
-                    current_app.logger.info(f"Cabin {cabin_id_presence} reached floor - activated as active cabin")
-                    
-                    # Update database minimum_distance if provided in event
-                    # Only update if not already set (to avoid overwriting manual values)
-                    floor_level_mm = event_data.get("floor_level_mm")
-                    if floor_level_mm:
-                        # Convert to DB format
-                        cabin_id_db = cabin_id_presence.replace("cabina-", "CABINA-").upper()
+                    try:
+                        # Convert to PresenceService format if needed
+                        cabin_id_presence = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id
                         
-                        # Check if floor level is already set - don't overwrite manual values
-                        from .database import get_cabin
-                        cabin_info = get_cabin(cabin_id_db)
-                        if cabin_info:
-                            # sqlite3.Row access
+                        logger.info(f"=== Floor reached event received for {cabin_id_presence} ===")
+                        logger.info(f"Event data: {event_data}")
+                        
+                        # CRITICAL: Stop motor - this is the most important action
+                        logger.info(f"Attempting to stop motor for {cabin_id_presence}...")
+                        stop_success = motor_service_ref.stop_motor(cabin_id_presence)
+                        if stop_success:
+                            logger.info(f"✓ Motor stopped successfully for {cabin_id_presence} (floor reached)")
+                        else:
+                            logger.error(f"✗ FAILED to stop motor for {cabin_id_presence}")
+                        
+                        # Activate cabin
+                        if presence_service_ref:
                             try:
-                                current_floor = cabin_info["minimum_distance"]
-                            except (KeyError, IndexError, TypeError):
-                                current_floor = None
-                            
-                            if current_floor is None:
-                                # Only update if not set (NULL)
-                                update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
-                                current_app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm (from floor event)")
-                            else:
-                                current_app.logger.debug(f"Skipping floor level update for {cabin_id_db} - already set to {current_floor}mm (manual value preserved)")
+                                presence_service_ref.set_active_cabin(cabin_id_presence)
+                                logger.info(f"✓ Cabin {cabin_id_presence} activated as active cabin")
+                            except Exception as e:
+                                logger.error(f"Error activating cabin {cabin_id_presence}: {e}", exc_info=True)
+                        else:
+                            logger.warning(f"Presence service not available, cannot activate cabin")
+                        
+                        # Optional: Update database minimum_distance (non-critical, skip if it fails)
+                        # We skip this to avoid Flask context issues in MQTT thread
+                        logger.debug(f"Floor level update skipped (requires Flask context)")
+                        
+                    except Exception as e:
+                        logger.error(f"Error in on_floor_reached callback for {cabin_id}: {e}", exc_info=True)
+                        # Even if there's an error, try to stop the motor as a safety measure
+                        try:
+                            cabin_id_presence = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id
+                            motor_service_ref.stop_motor(cabin_id_presence)
+                            logger.info(f"Emergency motor stop attempted for {cabin_id_presence}")
+                        except Exception as emergency_error:
+                            logger.error(f"Emergency motor stop also failed: {emergency_error}")
                 
                 # Register floor reached callback (only for this specific cabin)
                 # Note: This callback will be called for any floor event, but we check cabin_id
+                # Store the target cabin ID for comparison
+                target_cabin_presence = next_free_cabin_presence
+                
                 def floor_callback(cabin_id: str, event_data: dict):
-                    if cabin_id == next_free_cabin_presence:
+                    """Callback wrapper that filters by cabin ID and calls on_floor_reached."""
+                    # Normalize cabin_id format for comparison
+                    cabin_id_normalized = cabin_id.lower().strip()
+                    target_normalized = target_cabin_presence.lower().strip()
+                    
+                    logger.info(f"Floor callback triggered - received cabin_id='{cabin_id}' (normalized: '{cabin_id_normalized}'), target='{target_cabin_presence}' (normalized: '{target_normalized}')")
+                    
+                    if cabin_id_normalized == target_normalized:
+                        logger.info(f"✓ Floor callback MATCHED! Processing floor reached for {target_cabin_presence}")
                         on_floor_reached(cabin_id, event_data)
                         # Unregister callback after use (one-time event)
                         try:
                             with presence_service._callbacks_lock:
                                 if floor_callback in presence_service._floor_reached_callbacks:
                                     presence_service._floor_reached_callbacks.remove(floor_callback)
-                        except (ValueError, AttributeError):
-                            pass
+                                    logger.info(f"Unregistered floor callback for {target_cabin_presence}")
+                        except (ValueError, AttributeError) as e:
+                            logger.warning(f"Error unregistering callback: {e}")
+                    else:
+                        logger.debug(f"Floor callback ignored - cabin_id '{cabin_id}' does not match target '{target_cabin_presence}'")
                 
                 presence_service.register_floor_reached_callback(floor_callback)
+                logger.info(f"✓ Registered floor_reached callback for '{next_free_cabin_presence}' (waiting for floor/reached event)")
                 
                 # Start motor
                 current_app.logger.info(f"Starting motor to move {next_free_cabin_presence} to floor...")
