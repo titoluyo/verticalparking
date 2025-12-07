@@ -1465,6 +1465,195 @@ def dashboard_cabins():
         return jsonify({"error": f"Failed to get dashboard data: {str(e)}"}), 500
 
 
+@bp.route("/presence/debug/all-cabins", methods=["GET"])
+def debug_all_cabins():
+    """Get detailed state for all cabins including internal state (previous, timestamps, etc.).
+    
+    This endpoint provides full visibility into the PresenceService internal state
+    for debugging purposes.
+    
+    Returns:
+        JSON with detailed state for all cabins
+    """
+    service = current_app.config.get("PRESENCE_SERVICE")
+    if not service:
+        return jsonify({"error": "presence service unavailable"}), 503
+    
+    import time
+    
+    # Get internal state from PresenceService
+    cabins_data = {}
+    with service._lock:
+        active_cabin = service._active_cabin
+        connection_time = service._connection_time
+        connected = service._connected
+        
+        for cabin_id in service.cabins:
+            if cabin_id in service._state:
+                cabin_state = service._state[cabin_id]
+                entry_data = cabin_state.get("entry", {})
+                full_data = cabin_state.get("full", {})
+                distance_data = cabin_state.get("distance", {})
+                previous = cabin_state.get("previous", (False, False))
+                
+                # Get snapshot for this cabin
+                snapshot = service.snapshot(cabin_id=cabin_id)
+                
+                cabins_data[cabin_id] = {
+                    "is_active": (cabin_id == active_cabin),
+                    "sensors": {
+                        "entry": {
+                            "present": bool(entry_data.get("present", False)),
+                            "ts": entry_data.get("ts"),
+                            "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry_data.get("ts"))) if entry_data.get("ts") else None,
+                            "age_seconds": (time.time() - entry_data.get("ts")) if entry_data.get("ts") else None,
+                        },
+                        "full": {
+                            "present": bool(full_data.get("present", False)),
+                            "ts": full_data.get("ts"),
+                            "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_data.get("ts"))) if full_data.get("ts") else None,
+                            "age_seconds": (time.time() - full_data.get("ts")) if full_data.get("ts") else None,
+                        },
+                    },
+                    "previous_state": {
+                        "entry": previous[0],
+                        "full": previous[1],
+                    },
+                    "distance": {
+                        "from_mm": distance_data.get("from_mm"),
+                        "to_mm": distance_data.get("to_mm"),
+                        "ts": distance_data.get("ts"),
+                        "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(distance_data.get("ts"))) if distance_data.get("ts") else None,
+                    },
+                    "snapshot": snapshot,  # Include the processed snapshot
+                }
+            else:
+                cabins_data[cabin_id] = {
+                    "is_active": (cabin_id == active_cabin),
+                    "error": "State not initialized",
+                }
+    
+    return jsonify({
+        "active_cabin": active_cabin,
+        "connection_time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(connection_time)) if connection_time else None,
+        "time_since_connection": (time.time() - connection_time) if connection_time else None,
+        "connected": connected,
+        "cabins": cabins_data,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    })
+
+
+@bp.route("/presence/debug/cabin/<cabin_id>", methods=["GET"])
+def debug_cabin(cabin_id: str):
+    """Get detailed state for a specific cabin.
+    
+    Args:
+        cabin_id: Cabin ID (e.g., "cabina-01")
+    
+    Returns:
+        JSON with detailed state for the cabin
+    """
+    service = current_app.config.get("PRESENCE_SERVICE")
+    if not service:
+        return jsonify({"error": "presence service unavailable"}), 503
+    
+    # Normalize cabin ID
+    if not cabin_id.startswith("cabina-"):
+        cabin_id = f"cabina-{cabin_id.zfill(2)}"
+    
+    import time
+    
+    with service._lock:
+        if cabin_id not in service._state:
+            return jsonify({"error": f"Cabin {cabin_id} not found"}), 404
+        
+        cabin_state = service._state[cabin_id]
+        entry_data = cabin_state.get("entry", {})
+        full_data = cabin_state.get("full", {})
+        distance_data = cabin_state.get("distance", {})
+        previous = cabin_state.get("previous", (False, False))
+        
+        # Get snapshot for this cabin
+        snapshot = service.snapshot(cabin_id=cabin_id)
+        
+        return jsonify({
+            "cabin_id": cabin_id,
+            "is_active": (cabin_id == service._active_cabin),
+            "sensors": {
+                "entry": {
+                    "present": bool(entry_data.get("present", False)),
+                    "ts": entry_data.get("ts"),
+                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(entry_data.get("ts"))) if entry_data.get("ts") else None,
+                    "age_seconds": (time.time() - entry_data.get("ts")) if entry_data.get("ts") else None,
+                },
+                "full": {
+                    "present": bool(full_data.get("present", False)),
+                    "ts": full_data.get("ts"),
+                    "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(full_data.get("ts"))) if full_data.get("ts") else None,
+                    "age_seconds": (time.time() - full_data.get("ts")) if full_data.get("ts") else None,
+                },
+            },
+            "previous_state": {
+                "entry": previous[0],
+                "full": previous[1],
+            },
+            "distance": {
+                "from_mm": distance_data.get("from_mm"),
+                "to_mm": distance_data.get("to_mm"),
+                "ts": distance_data.get("ts"),
+                "ts_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(distance_data.get("ts"))) if distance_data.get("ts") else None,
+            },
+            "snapshot": snapshot,
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+
+
+@bp.route("/presence/debug/reset-previous/<cabin_id>", methods=["POST"])
+def debug_reset_previous(cabin_id: str):
+    """Reset the 'previous' state for a specific cabin to match current sensor state.
+    
+    This is useful for debugging when the previous state gets out of sync.
+    
+    Args:
+        cabin_id: Cabin ID (e.g., "cabina-01")
+    
+    Returns:
+        JSON with success status
+    """
+    service = current_app.config.get("PRESENCE_SERVICE")
+    if not service:
+        return jsonify({"error": "presence service unavailable"}), 503
+    
+    # Normalize cabin ID
+    if not cabin_id.startswith("cabina-"):
+        cabin_id = f"cabina-{cabin_id.zfill(2)}"
+    
+    with service._lock:
+        if cabin_id not in service._state:
+            return jsonify({"error": f"Cabin {cabin_id} not found"}), 404
+        
+        cabin_state = service._state[cabin_id]
+        current_entry = bool(cabin_state.get("entry", {}).get("present", False))
+        current_full = bool(cabin_state.get("full", {}).get("present", False))
+        old_previous = cabin_state.get("previous", (False, False))
+        
+        # Reset previous to match current state
+        cabin_state["previous"] = (current_entry, current_full)
+        
+        current_app.logger.info(f"Reset previous state for {cabin_id}: {old_previous} -> ({current_entry}, {current_full})")
+        
+        return jsonify({
+            "success": True,
+            "cabin_id": cabin_id,
+            "old_previous": {"entry": old_previous[0], "full": old_previous[1]},
+            "new_previous": {"entry": current_entry, "full": current_full},
+            "current_sensors": {
+                "entry": current_entry,
+                "full": current_full,
+            },
+        })
+
+
 @bp.route("/db/cleanup", methods=["POST"])
 def db_cleanup():
     """Clean up database: delete tickets and/or reset cabins.
