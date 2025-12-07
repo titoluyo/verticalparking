@@ -108,10 +108,29 @@
     
     cabinsGrid.innerHTML = cabins.map(cabin => {
       // Determine the display state - prioritize sensor state if available
+      // But also consider database estado (busy) as it indicates active ticket
       let displayState = cabin.estado === 'busy' ? 'busy' : 'free';
       
-      if (cabin.sensor_data_available) {
+      // If sensor data is available, use sensor_state (it already considers active tickets)
+      if (cabin.sensor_data_available && cabin.sensor_state) {
         displayState = cabin.sensor_state;
+      } else if (cabin.estado === 'busy') {
+        // Fallback: if no sensor data but database says busy, show as occupied
+        displayState = 'occupied';
+      }
+      
+      // Debug logging (remove in production)
+      if (cabin.id === 'CABINA-01') {
+        console.log(`Cabin ${cabin.id}: estado=${cabin.estado}, sensor_state=${cabin.sensor_state}, sensor_data_available=${cabin.sensor_data_available}, displayState=${displayState}`);
+      }
+      if (cabin.id === 'CABINA-02') {
+        console.log(`Cabin ${cabin.id}: estado=${cabin.estado}, sensor_state=${cabin.sensor_state}, sensor_data_available=${cabin.sensor_data_available}, displayState=${displayState}`);
+      }
+      if (cabin.id === 'CABINA-03') {
+        console.log(`Cabin ${cabin.id}: estado=${cabin.estado}, sensor_state=${cabin.sensor_state}, sensor_data_available=${cabin.sensor_data_available}, displayState=${displayState}`);
+      }
+      if (cabin.id === 'CABINA-04') {
+        console.log(`Cabin ${cabin.id}: estado=${cabin.estado}, sensor_state=${cabin.sensor_state}, sensor_data_available=${cabin.sensor_data_available}, displayState=${displayState}`);
       }
       
       const stateClass = getStateClass(displayState);
@@ -190,7 +209,12 @@
       error.style.display = 'none';
     }
     
-    fetch('/api/dashboard/cabins')
+    fetch('/api/dashboard/cabins', { 
+      cache: 'no-cache',
+      headers: {
+        'Cache-Control': 'no-cache'
+      }
+    })
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -206,6 +230,20 @@
           loadingIndicator.classList.remove('loading');
           cabinsGrid.classList.remove('updating');
         }
+        
+        // Debug: Log data received
+        if (data.cabins && data.cabins.length > 0) {
+          const cabin01 = data.cabins.find(c => c.id === 'CABINA-01');
+          if (cabin01) {
+            console.log('Dashboard data for CABINA-01:', {
+              estado: cabin01.estado,
+              sensor_state: cabin01.sensor_state,
+              sensor_data_available: cabin01.sensor_data_available,
+              sensors: cabin01.sensors
+            });
+          }
+        }
+        
         renderCabins(data);
         lastUpdate.textContent = `Última actualización: ${formatTimestamp(data.timestamp)}`;
         
@@ -222,6 +260,7 @@
       })
       .catch(err => {
         console.error('Error loading dashboard:', err);
+        // Don't break polling on error - just log it
         if (isInitialLoad) {
           loading.style.display = 'none';
           error.style.display = 'block';
@@ -229,7 +268,7 @@
         } else {
           loadingIndicator.classList.remove('loading');
           cabinsGrid.classList.remove('updating');
-          error.style.display = 'block';
+          // Don't show error on refresh - keep existing data visible
         }
       });
   }
@@ -279,14 +318,24 @@
   loadDashboard();
   
   // Auto-refresh every 5 seconds
-  refreshInterval = setInterval(loadDashboard, 5000);
+  // Use setTimeout with recursive calls to handle errors better
+  function scheduleNextLoad() {
+    refreshInterval = setTimeout(() => {
+      loadDashboard();
+      scheduleNextLoad(); // Schedule next load after current one completes
+    }, 5000);
+  }
+  scheduleNextLoad();
   
   // Clean up on page unload
   window.addEventListener('beforeunload', () => {
     if (refreshInterval) {
-      clearInterval(refreshInterval);
+      clearTimeout(refreshInterval);
     }
   });
+  
+  // Log connection status
+  console.log('Dashboard polling started - refreshing every 5 seconds');
 })();
 </script>
 </section>

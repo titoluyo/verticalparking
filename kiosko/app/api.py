@@ -1387,34 +1387,32 @@ def dashboard_cabins():
                 distance_sensor["min_mm"] = min_distance_from_db
             
             # Determine overall state
+            # PRIORITY: Active ticket > Sensor state
             # Check if cabin has active ticket (vehicle stored inside)
             from .database import has_active_ticket_direct
             has_active_ticket = has_active_ticket_direct(db_id)
             
-            # Use PresenceService data if available (more reliable), otherwise fall back to MQTT temp connection
-            if presence_data_available or sensor_data_available:
+            # If cabin has active ticket, it's occupied regardless of sensor state
+            # (sensors only detect movement, not continuous presence)
+            if has_active_ticket:
+                sensor_state = "occupied"
+                sensor_message = "Vehículo guardado"
+                logger.info(f"Dashboard API: {mqtt_id} (DB: {db_id}) has active ticket - marking as occupied (entry={entry_sensor.get('present')}, full={full_sensor.get('present')})")
+            # Use sensor data if available and no active ticket
+            elif presence_data_available or sensor_data_available:
                 if full_sensor.get("present", False):
                     sensor_state = "occupied"
                     sensor_message = "Vehículo detectado"
                 elif entry_sensor.get("present", False):
                     sensor_state = "transitioning"
                     sensor_message = "Vehículo ingresando..."
-                elif has_active_ticket:
-                    # Cabin has active ticket (vehicle stored) but sensors show no presence
-                    # This is normal - sensors only detect movement, not continuous presence
-                    sensor_state = "occupied"
-                    sensor_message = "Vehículo guardado"
                 else:
                     sensor_state = "free"
                     sensor_message = "Espacio libre"
             else:
-                # No sensor data available - rely on ticket status
-                if has_active_ticket:
-                    sensor_state = "occupied"
-                    sensor_message = "Vehículo guardado"
-                else:
-                    sensor_state = "unknown"
-                    sensor_message = "Sensor no disponible"
+                # No sensor data and no active ticket
+                sensor_state = "unknown"
+                sensor_message = "Sensor no disponible"
             
             is_active = (mqtt_id == active_cabin_mqtt) if active_cabin_mqtt else False
             
