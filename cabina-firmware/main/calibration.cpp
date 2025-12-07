@@ -225,10 +225,9 @@ bool calibration_is_at_floor(calibration_state_t *state, int current_distance) {
         return false;
     }
     
-    int diff = current_distance - state->floor_level;
-    if (diff < 0) diff = -diff;  // abs
-    
-    return diff <= CALIBRATION_FLOOR_TOLERANCE_MM;
+    // Cabin is at floor when current distance is equal or less than floor level
+    // (smaller number = closer to sensor = at floor)
+    return current_distance <= state->floor_level;
 }
 
 bool calibration_load_floor_level(calibration_state_t *state) {

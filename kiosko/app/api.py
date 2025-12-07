@@ -1037,20 +1037,23 @@ def _format_timestamp(ts_value):
 def _is_at_floor(current_distance: Optional[int], minimum_distance: Optional[int], tolerance: int = 10) -> bool:
     """Determine if cabin is at floor level based on distance comparison.
     
+    Cabin is at floor when current distance is equal or less than the floor level.
+    (Smaller number = closer to sensor = at floor)
+    
     Args:
         current_distance: Current distance reading in mm (None if unavailable)
         minimum_distance: Minimum distance (floor level) in mm (None if not calibrated)
-        tolerance: Tolerance in mm for considering cabin at floor (default: 10mm)
+        tolerance: Tolerance in mm (not used, kept for compatibility)
         
     Returns:
-        True if cabin is at floor level, False otherwise
+        True if cabin is at floor level (current_distance <= minimum_distance), False otherwise
     """
     if current_distance is None or minimum_distance is None:
         return False
     
-    # Cabin is at floor if current distance is within tolerance of minimum
+    # Cabin is at floor if current distance is equal or less than floor level
     # (smaller number = closer to sensor = at floor)
-    return abs(current_distance - minimum_distance) <= tolerance
+    return current_distance <= minimum_distance
 
 
 @bp.route("/dashboard/cabins", methods=["GET"])

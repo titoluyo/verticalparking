@@ -36,7 +36,7 @@ static void handle_mqtt_command(const char *topic, const char *data, int data_le
     }
     
     // Simple JSON parsing for commands
-    // Look for "start_calibration": true or "stop_calibration": true
+    // Look for "start_calibration": true or "stop_calibration": true or "set_floor_level": <value>
     if (strstr(data, "\"start_calibration\"") != NULL && strstr(data, "true") != NULL) {
         // Get current distance to start calibration
         int current_dist = vl53l0x_read_range_mm(g_i2c_port);
@@ -49,6 +49,15 @@ static void handle_mqtt_command(const char *topic, const char *data, int data_le
     } else if (strstr(data, "\"stop_calibration\"") != NULL && strstr(data, "true") != NULL) {
         calibration_stop(&g_calibration_state);
         ESP_LOGI(TAG, "Calibration stopped via MQTT command");
+    } else if (strstr(data, "\"set_floor_level\"") != NULL) {
+        // Parse: {"set_floor_level": 450}
+        int floor_level = 0;
+        if (sscanf(data, "{\"set_floor_level\": %d}", &floor_level) == 1 && floor_level > 0) {
+            calibration_save_floor_level(&g_calibration_state, floor_level);
+            ESP_LOGI(TAG, "Floor level set via MQTT command: %d mm", floor_level);
+        } else {
+            ESP_LOGW(TAG, "Invalid set_floor_level command format or value");
+        }
     }
 }
 

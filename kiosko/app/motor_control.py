@@ -242,18 +242,22 @@ class MotorControlService:
     def _is_at_floor(self, current_distance: Optional[int], minimum_distance: Optional[int], tolerance: int = 10) -> bool:
         """Check if cabin is at floor level.
         
+        Cabin is at floor when current distance is equal or less than the floor level.
+        (Smaller number = closer to sensor = at floor)
+        
         Args:
             current_distance: Current distance reading in mm
             minimum_distance: Minimum distance (floor level) in mm
-            tolerance: Tolerance in mm
+            tolerance: Tolerance in mm (not used, kept for compatibility)
         
         Returns:
-            True if at floor level
+            True if at floor level (current_distance <= minimum_distance)
         """
         if current_distance is None or minimum_distance is None:
             return False
         
-        return abs(current_distance - minimum_distance) <= tolerance
+        # Cabin is at floor if current distance is equal or less than floor level
+        return current_distance <= minimum_distance
     
     def _monitor_distance(
         self,
