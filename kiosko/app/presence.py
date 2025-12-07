@@ -330,30 +330,16 @@ class PresenceService:
                 full_present = bool(cabin_state["full"]["present"])
                 prev_entry, prev_full = cabin_state["previous"]
                 
-                # Check if this cabin has an active ticket (vehicle already stored)
-                # If it does, we should ignore sensor state and show "free" to allow next vehicle
-                # Convert to DB format for ticket check
-                cabin_id_db = target_cabin.replace("cabina-", "CABINA-").upper()
-                has_active_ticket = False
-                try:
-                    from .database import has_active_ticket_direct
-                    has_active_ticket = has_active_ticket_direct(cabin_id_db)
-                    if has_active_ticket:
-                        self.logger.debug(f"Cabin {target_cabin} has active ticket - ignoring sensor state for vehicle entrance detection")
-                except Exception as e:
-                    self.logger.warning(f"Error checking active ticket for {target_cabin}: {e}")
+                # Log sensor state for debugging
+                self.logger.debug(f"Snapshot for {target_cabin} (active): entry={entry_present}, full={full_present}, prev=({prev_entry}, {prev_full}), entry_ts={cabin_state['entry']['ts']}, full_ts={cabin_state['full']['ts']}")
                 
-                # If cabin has active ticket, ignore sensor state and treat as free
-                # This allows the system to detect the next vehicle entering, even if sensors
-                # still show the previous vehicle inside (which is expected - vehicle is stored inside)
-                # IMPORTANT: This only applies if we're checking the active cabin for vehicle entrance detection
-                # If the active cabin has a ticket, it means a vehicle was just stored there, so we should
-                # ignore its sensors and show "free" to allow detection of the next vehicle entering
-                if has_active_ticket:
-                    # Reset sensor state to free to allow detection of next vehicle
-                    entry_present = False
-                    full_present = False
-                    self.logger.info(f"Cabin {target_cabin} (active) has active ticket - resetting sensor state to free for next vehicle detection (sensors show entry={cabin_state['entry']['present']}, full={cabin_state['full']['present']})")
+                # IMPORTANT: Always use sensor data for the active cabin to detect vehicle entrance.
+                # After storing a vehicle:
+                # 1. The active cabin changes to the NEXT free cabin (which does NOT have a ticket)
+                # 2. The new active cabin should use its sensors normally to detect the next vehicle
+                # 3. The previous cabin (where vehicle was stored) has a ticket but is no longer active
+                # 
+                # So we always use sensor data for the active cabin, regardless of tickets.
                 
                 # Check if we have recent sensor data (within last 10 seconds)
                 # If sensors show "entered" but data is stale, treat as unknown/free
@@ -371,14 +357,14 @@ class PresenceService:
                 
                 # If sensors show "entered" but we don't have recent data, treat as free
                 # This prevents showing "entered" on startup from stale MQTT retained messages
-                # BUT: Only apply this if cabin doesn't have active ticket (if it has ticket, we already reset above)
-                if not has_active_ticket and entry_present and full_present and not has_recent_data:
+                if entry_present and full_present and not has_recent_data:
                     # Stale data showing entered - reset to free
                     entry_present = False
                     full_present = False
                     self.logger.debug(f"Stale sensor data for {target_cabin} showing entered, treating as free (entry_ts={entry_ts}, full_ts={full_ts})")
                 
                 state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
+                self.logger.debug(f"Snapshot state determined for {target_cabin}: state={state_info['state']}, message={state_info['message']}")
                 updated_at = None
                 for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
                     if ts:
@@ -801,11 +787,24 @@ class PresenceService:
                     self.logger.debug("Ignoring stale sensor data for auto-switch: cabin=%s entry=%s ts=%s (age=%.1fs)", 
                                     cabin_id, present, sensor_ts, current_time - sensor_ts if sensor_ts else 0)
             
+            # Get current state BEFORE updating (this is the "previous" state for the next update)
+            old_entry = bool(self._state[cabin_id]["entry"]["present"])
+            old_full = bool(self._state[cabin_id]["full"]["present"])
+            
+            # Update sensor state
             self._state[cabin_id][key] = {"present": present, "ts": ts}
-            # Update previous combined state for this cabin
+            
+            # Get new state AFTER updating
             entry_present = bool(self._state[cabin_id]["entry"]["present"])
             full_present = bool(self._state[cabin_id]["full"]["present"])
-            self._state[cabin_id]["previous"] = (entry_present, full_present)
+            
+            # Update previous state to the OLD state (before this update)
+            # This allows _determine_state to detect transitions correctly
+            self._state[cabin_id]["previous"] = (old_entry, old_full)
+            
+            # Log state transitions for debugging
+            if (old_entry, old_full) != (entry_present, full_present):
+                self.logger.debug(f"State transition for {cabin_id}: ({old_entry}, {old_full}) -> ({entry_present}, {full_present})")
         
         # Log state changes for active cabin or any significant changes
         is_active_now = (cabin_id == self._active_cabin)
