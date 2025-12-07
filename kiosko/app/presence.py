@@ -321,6 +321,28 @@ class PresenceService:
                 full_present = bool(cabin_state["full"]["present"])
                 prev_entry, prev_full = cabin_state["previous"]
                 
+                # Check if we have recent sensor data (within last 10 seconds)
+                # If sensors show "entered" but data is stale, treat as unknown/free
+                # This prevents showing "entered" on startup from stale MQTT retained messages
+                entry_ts = cabin_state["entry"]["ts"]
+                full_ts = cabin_state["full"]["ts"]
+                has_recent_data = False
+                if entry_ts or full_ts:
+                    current_time = time.time()
+                    # Consider data recent if within last 10 seconds
+                    if entry_ts and (current_time - entry_ts) < 10:
+                        has_recent_data = True
+                    if full_ts and (current_time - full_ts) < 10:
+                        has_recent_data = True
+                
+                # If sensors show "entered" but we don't have recent data, treat as free
+                # This prevents showing "entered" on startup from stale MQTT retained messages
+                if entry_present and full_present and not has_recent_data:
+                    # Stale data showing entered - reset to free
+                    entry_present = False
+                    full_present = False
+                    self.logger.debug(f"Stale sensor data for {target_cabin} showing entered, treating as free (entry_ts={entry_ts}, full_ts={full_ts})")
+                
                 state_info = self._determine_state(entry_present, full_present, prev_entry, prev_full)
                 updated_at = None
                 for ts in (cabin_state["entry"]["ts"], cabin_state["full"]["ts"], cabin_state.get("distance", {}).get("ts")):
@@ -413,9 +435,23 @@ class PresenceService:
                 message = "Vehiculo ingresando..." if not prev_entry else "Vehiculo saliendo..."
         
         # State 3: Both on -> Fully entered
+        # IMPORTANT: Only show "entered" if we have a valid transition from previous state
+        # This prevents showing "entered" on startup if sensors are stuck on from retained MQTT messages
         elif entry_present and full_present:
-            state = "entered"
-            message = "Vehiculo ingresado"
+            # If previous state was also both on, maintain "entered"
+            # If previous state was different, this is a new entry
+            if prev_entry and prev_full:
+                # Already in entered state - maintain it
+                state = "entered"
+                message = "Vehiculo ingresado"
+            elif not prev_entry and not prev_full:
+                # Transition from free to both on - vehicle just entered
+                state = "entered"
+                message = "Vehiculo ingresado"
+            else:
+                # Transitioning state - vehicle is entering
+                state = "transitioning"
+                message = "Vehiculo ingresando..."
         
         # State 4: Entry off, Full on -> Shouldn't happen normally, treat as free
         else:
@@ -531,8 +567,8 @@ class PresenceService:
 
         # Log all MQTT messages at debug level, but log IR sensor messages at info level
         if sensor in ("ir1", "ir2") or "entry" in msg.topic or "full" in msg.topic:
-            self.logger.info("MQTT IR message: topic=%s device=%s sensor=%s present=%s", 
-                           msg.topic, device, sensor, present)
+            self.logger.info("MQTT IR message: topic=%s device=%s sensor=%s present=%s active_cabin=%s", 
+                           msg.topic, device, sensor, present, self._active_cabin)
         else:
             self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s floor=%s calib=%s", 
                              msg.topic, device, sensor, present, is_distance, is_floor_reached, is_calibration_complete)
@@ -598,12 +634,12 @@ class PresenceService:
                     self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
                 # Determine sensor type for presence messages
                 elif sensor == "ir1" or "entry" in msg.topic:
-                    self.logger.info("IR sensor event: cabin=%s sensor=entry present=%s topic=%s", 
-                                   cabin_id, present, msg.topic)
+                    self.logger.info("IR sensor event: cabin=%s sensor=entry present=%s topic=%s active=%s", 
+                                   cabin_id, present, msg.topic, cabin_id == self._active_cabin)
                     self._update_state_multi(cabin_id, "entry", present, ts)
                 elif sensor == "ir2" or "full" in msg.topic:
-                    self.logger.info("IR sensor event: cabin=%s sensor=full present=%s topic=%s", 
-                                   cabin_id, present, msg.topic)
+                    self.logger.info("IR sensor event: cabin=%s sensor=full present=%s topic=%s active=%s", 
+                                   cabin_id, present, msg.topic, cabin_id == self._active_cabin)
                     self._update_state_multi(cabin_id, "full", present, ts)
             else:
                 self.logger.debug("Ignoring message for unknown cabin: %s", cabin_id)
@@ -694,20 +730,6 @@ class PresenceService:
             # Auto-switch active cabin if vehicle is detected entering a non-active cabin
             # This allows detection in any cabin, not just the active one
             is_active = (cabin_id == self._active_cabin)
-            if not is_active and key == "entry" and present:
-                # Check if previous state was empty (vehicle just started entering)
-                prev_entry = self._state[cabin_id].get("previous", (False, False))[0]
-                if not prev_entry:
-                    # Vehicle detected entering a non-active cabin - switch to that cabin
-                    old_active = self._active_cabin
-                    self._active_cabin = cabin_id
-                    self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s", 
-                                   cabin_id, old_active, cabin_id)
-                    should_notify_switch = True
-            
-            # Auto-switch active cabin if vehicle is detected entering a non-active cabin
-            # This allows detection in any cabin, not just the active one
-            is_active = (cabin_id == self._active_cabin)
             prev_entry = self._state[cabin_id].get("previous", (False, False))[0] if cabin_id in self._state else False
             
             if not is_active and key == "entry" and present and not prev_entry:
@@ -716,6 +738,7 @@ class PresenceService:
                 self._active_cabin = cabin_id
                 self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s", 
                                cabin_id, old_active, cabin_id)
+                should_notify_switch = True
             
             self._state[cabin_id][key] = {"present": present, "ts": ts}
             # Update previous combined state for this cabin
