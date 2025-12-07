@@ -174,22 +174,33 @@ def guardar_vehiculo():
                         except Exception as emergency_error:
                             logger.error(f"Emergency motor stop also failed: {emergency_error}")
                 
-                # Register floor reached callback for ANY free cabin
-                # Since motor is global, multiple cabins may be descending simultaneously.
-                # We accept the FIRST free cabin that reaches floor level.
+                # Register floor reached callback for the SPECIFIC expected cabin
+                # We calculate which cabin should be moved to floor and only accept events from that cabin
+                # This prevents other cabins (e.g., already at top with obstacles) from triggering the callback
+                expected_cabin_presence = next_free_cabin_presence  # Capture the expected cabin
+                
                 def floor_callback(cabin_id: str, event_data: dict):
-                    """Callback that accepts ANY free cabin reaching floor."""
+                    """Callback that only accepts events from the expected cabin."""
                     try:
-                        # Check if this cabin is free (no active ticket) - use direct DB access
+                        # Normalize cabin ID format for comparison
+                        cabin_id_normalized = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id.lower()
+                        expected_cabin_normalized = expected_cabin_presence.lower()
+                        
+                        # Only accept events from the expected cabin
+                        if cabin_id_normalized != expected_cabin_normalized:
+                            logger.debug(f"Floor event ignored for {cabin_id} - expected {expected_cabin_presence}, ignoring")
+                            return
+                        
+                        # Verify this cabin is still free (safety check)
                         cabin_id_db = cabin_id.replace("cabina-", "CABINA-").upper() if not cabin_id.startswith("CABINA-") else cabin_id
                         from .database import has_active_ticket_direct
                         
                         if has_active_ticket_direct(cabin_id_db):
-                            logger.debug(f"Floor event ignored for {cabin_id} - has active ticket")
+                            logger.warning(f"Floor event for {cabin_id} ignored - cabin now has active ticket")
                             return
                         
-                        # This cabin is free and reached floor - stop motor and activate it
-                        logger.info(f"Free cabin {cabin_id} reached floor - stopping motor")
+                        # Expected cabin reached floor - stop motor and activate it
+                        logger.info(f"Expected cabin {cabin_id} reached floor - stopping motor")
                         on_floor_reached(cabin_id, event_data)
                         
                         # Unregister callback after use (one-time event)
@@ -197,6 +208,7 @@ def guardar_vehiculo():
                             with presence_service._callbacks_lock:
                                 if floor_callback in presence_service._floor_reached_callbacks:
                                     presence_service._floor_reached_callbacks.remove(floor_callback)
+                                    logger.debug(f"Unregistered floor callback after {cabin_id} reached floor")
                         except (ValueError, AttributeError) as e:
                             logger.warning(f"Error unregistering callback: {e}")
                     except Exception as e:
