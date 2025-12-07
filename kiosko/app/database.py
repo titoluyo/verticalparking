@@ -300,16 +300,12 @@ def find_next_free_cabin_circular(start_cabin_id: Optional[str] = None, logger=N
     # Extract cabin numbers and create ordered list
     cabin_list = [row["id"] for row in all_cabins]  # ["CABINA-01", "CABINA-02", ...]
     
-    # Log all cabin states for debugging
-    cabin_states = {row["id"]: row["estado"] for row in all_cabins}
-    logger.info(f"All cabin states: {cabin_states}")
-    
     # Determine starting index
     start_idx = 0
     if start_cabin_id:
         try:
             start_idx = cabin_list.index(start_cabin_id)
-            logger.info(f"Starting circular search from {start_cabin_id} (index {start_idx})")
+            logger.debug(f"Starting circular search from {start_cabin_id} (index {start_idx})")
         except ValueError:
             # Cabin not found, start from beginning
             logger.warning(f"Start cabin {start_cabin_id} not found, starting from beginning")
@@ -318,34 +314,28 @@ def find_next_free_cabin_circular(start_cabin_id: Optional[str] = None, logger=N
     # Search circularly: start from start_idx+1 (next cabin), then wrap around
     # Check if each cabin has an active ticket (not just database estado)
     # First pass: from start_idx+1 to end
-    logger.info(f"First pass: checking cabins from index {start_idx + 1} to {len(cabin_list) - 1}")
     for i in range(start_idx + 1, len(cabin_list)):
         cabin_id = cabin_list[i]
         # Check if cabin actually has an active ticket
         has_ticket = has_active_ticket(cabin_id)
-        logger.info(f"Checking {cabin_id}: has_active_ticket={has_ticket}")
+        logger.debug(f"Checking {cabin_id}: has_active_ticket={has_ticket}")
         if not has_ticket:
-            logger.info(f"Found free cabin (no active ticket): {cabin_id}")
+            logger.info(f"Found free cabin: {cabin_id}")
             # Also update database estado to match reality
             update_cabin_status(cabin_id, "free")
             return cabin_id
-        else:
-            logger.info(f"Cabin {cabin_id} has active ticket, skipping")
     
     # Second pass: from beginning to start_idx (wrap around, but skip start_idx itself)
-    logger.info(f"Second pass: checking cabins from index 0 to {start_idx - 1}")
     for i in range(0, start_idx):
         cabin_id = cabin_list[i]
         # Check if cabin actually has an active ticket
         has_ticket = has_active_ticket(cabin_id)
-        logger.info(f"Checking {cabin_id}: has_active_ticket={has_ticket}")
+        logger.debug(f"Checking {cabin_id}: has_active_ticket={has_ticket}")
         if not has_ticket:
-            logger.info(f"Found free cabin (wrapped, no active ticket): {cabin_id}")
+            logger.info(f"Found free cabin (wrapped): {cabin_id}")
             # Also update database estado to match reality
             update_cabin_status(cabin_id, "free")
             return cabin_id
-        else:
-            logger.info(f"Cabin {cabin_id} has active ticket, skipping")
     
     logger.warning(f"No free cabins found in circular search starting from {start_cabin_id} (all have active tickets)")
     return None

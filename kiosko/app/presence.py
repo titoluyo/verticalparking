@@ -550,8 +550,8 @@ class PresenceService:
                 if is_floor_reached:
                     distance_mm = payload.get("distance_mm")
                     floor_level_mm = payload.get("floor_level_mm")
-                    self.logger.info("Floor reached event received cabin=%s distance_mm=%s floor_level_mm=%s ts=%s", 
-                                   cabin_id, distance_mm, floor_level_mm, ts)
+                    self.logger.debug("Floor reached event received cabin=%s distance_mm=%s floor_level_mm=%s", 
+                                    cabin_id, distance_mm, floor_level_mm)
                     # Call registered callbacks
                     with self._callbacks_lock:
                         for callback in self._floor_reached_callbacks:
@@ -588,8 +588,8 @@ class PresenceService:
                 
                 # Handle distance messages
                 elif is_distance or "distance" in msg.topic:
-                    self.logger.info("Distance event received cabin=%s from_mm=%s to_mm=%s ts=%s topic=%s", 
-                                   cabin_id, from_mm, to_mm, ts, msg.topic)
+                    self.logger.debug("Distance event received cabin=%s from_mm=%s to_mm=%s", 
+                                    cabin_id, from_mm, to_mm)
                     self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
                 # Determine sensor type for presence messages
                 elif sensor == "ir1" or "entry" in msg.topic:
@@ -644,8 +644,8 @@ class PresenceService:
             
             # Handle distance messages
             elif is_distance or "distance" in msg.topic:
-                self.logger.info("Distance event received from_mm=%s to_mm=%s ts=%s topic=%s", 
-                               from_mm, to_mm, ts, msg.topic)
+                self.logger.debug("Distance event received from_mm=%s to_mm=%s", 
+                                from_mm, to_mm)
                 self._update_distance(from_mm, to_mm, ts)
             # IR1 (entry sensor): detects when vehicle starts entering the cabin
             elif msg.topic == self.topic_entry or sensor == "ir1":
