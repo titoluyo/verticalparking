@@ -309,6 +309,7 @@ class PresenceService:
         
         # Notify subscribers AFTER releasing the lock to avoid deadlock
         if should_notify:
+            self.logger.info(f"Notifying subscribers of active cabin change to {cabin_id}")
             self._notify_subscribers()
         
         return True
@@ -824,6 +825,7 @@ class PresenceService:
             # Get current state BEFORE updating (this is the "previous" state for the next update)
             old_entry = bool(self._state[cabin_id]["entry"]["present"])
             old_full = bool(self._state[cabin_id]["full"]["present"])
+            old_previous = self._state[cabin_id].get("previous", (False, False))
             
             # Update sensor state
             self._state[cabin_id][key] = {"present": present, "ts": ts}
@@ -836,21 +838,32 @@ class PresenceService:
             # This allows _determine_state to detect transitions correctly
             self._state[cabin_id]["previous"] = (old_entry, old_full)
             
-            # Log state transitions for debugging
+            # Log state transitions for debugging (especially for active cabin)
+            is_active = (cabin_id == self._active_cabin)
             if (old_entry, old_full) != (entry_present, full_present):
-                self.logger.debug(f"State transition for {cabin_id}: ({old_entry}, {old_full}) -> ({entry_present}, {full_present})")
+                if is_active:
+                    self.logger.info(f"State transition for ACTIVE cabin {cabin_id}: ({old_entry}, {old_full}) -> ({entry_present}, {full_present}), sensor={key}, present={present}")
+                else:
+                    self.logger.debug(f"State transition for {cabin_id}: ({old_entry}, {old_full}) -> ({entry_present}, {full_present})")
+            
+            # Log if previous state seems incorrect (for debugging)
+            if is_active and old_previous != (old_entry, old_full):
+                self.logger.warning(f"Previous state mismatch for active cabin {cabin_id}: stored={old_previous}, actual_before_update=({old_entry}, {old_full})")
         
         # Log state changes for active cabin or any significant changes
         is_active_now = (cabin_id == self._active_cabin)
         entry_state = bool(self._state[cabin_id]["entry"]["present"]) if cabin_id in self._state else False
         full_state = bool(self._state[cabin_id]["full"]["present"]) if cabin_id in self._state else False
         if present or is_active_now:
-            self.logger.info("Presence update: cabin=%s sensor=%s present=%s (entry=%s full=%s) active=%s", 
-                           cabin_id, key, present, entry_state, full_state, is_active_now)
+            self.logger.info("Presence update: cabin=%s sensor=%s present=%s (entry=%s full=%s) active=%s previous=(%s,%s)", 
+                           cabin_id, key, present, entry_state, full_state, is_active_now, old_entry, old_full)
         else:
             self.logger.debug("Presence update cabin=%s %s present=%s ts=%s", cabin_id, key, present, ts)
         
         # Notify all subscribers of state change
+        # This is especially important for the active cabin so the UI updates
+        if is_active_now:
+            self.logger.debug(f"Notifying subscribers of state change for active cabin {cabin_id}")
         self._notify_subscribers()
     
     def _update_distance(self, from_mm: Optional[int], to_mm: Optional[int], ts: float) -> None:
