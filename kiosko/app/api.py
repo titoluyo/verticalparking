@@ -1249,6 +1249,8 @@ def dashboard_cabins():
             try:
                 if hasattr(presence_service, '_state') and hasattr(presence_service, '_lock'):
                     with presence_service._lock:
+                        state_cabins = list(presence_service._state.keys())
+                        logger.info(f"Dashboard: Reading PresenceService state, found {len(presence_service._state)} cabins: {state_cabins}")
                         for cabin_id, cabin_state in presence_service._state.items():
                             if isinstance(cabin_state, dict):
                                 # Get IR sensor data
@@ -1272,6 +1274,8 @@ def dashboard_cabins():
                                         "ts": entry_data.get("ts")
                                     }
                                     presence_data_available = True
+                                    if entry_present:
+                                        logger.info(f"Dashboard: PresenceService has entry=True for {cabin_id}")
                                 
                                 # Update full sensor from PresenceService (has priority)
                                 full_present = full_data.get("present")
@@ -1281,6 +1285,8 @@ def dashboard_cabins():
                                         "ts": full_data.get("ts")
                                     }
                                     presence_data_available = True
+                                    if full_present:
+                                        logger.info(f"Dashboard: PresenceService has full=True for {cabin_id}")
                                 
                                 # Update distance from PresenceService (has priority)
                                 to_mm = distance_data.get("to_mm")
@@ -1296,7 +1302,7 @@ def dashboard_cabins():
                                             "ts": distance_data.get("ts")
                                         }
             except Exception as e:
-                logger.debug("Could not populate sensor data from presence service: %s", e)
+                logger.error(f"Could not populate sensor data from presence service: {e}", exc_info=True)
         
         # Combine database and sensor data
         cabins_data = []
@@ -1330,7 +1336,11 @@ def dashboard_cabins():
             
             # Log sensor state for debugging when sensors are active
             if entry_sensor.get("present") or full_sensor.get("present"):
-                logger.info(f"Dashboard: {mqtt_id} sensors - entry={entry_sensor.get('present')}, full={full_sensor.get('present')}, active={mqtt_id == active_cabin_mqtt}")
+                logger.info(f"Dashboard API: {mqtt_id} sensors - entry={entry_sensor.get('present')}, full={full_sensor.get('present')}, active={mqtt_id == active_cabin_mqtt}, from_PresenceService={mqtt_id in sensor_results}")
+            
+            # Log if we don't have sensor data for this cabin but should
+            if not entry_sensor.get("present") and not full_sensor.get("present") and mqtt_id in sensor_results:
+                logger.debug(f"Dashboard API: {mqtt_id} has sensor_results but no active sensors")
             
             # Initialize minimum distance from database
             min_distance_from_db = minimum_distance
