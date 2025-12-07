@@ -7,7 +7,7 @@ from flask import Blueprint, current_app, render_template, redirect, url_for, fl
 from .database import (
     create_ticket, update_cabin_status, find_free_cabin, get_cabin,
     get_ticket_by_token, find_next_free_cabin_circular, get_next_cabin_circular,
-    has_active_ticket
+    has_active_ticket, update_cabin_minimum_distance
 )
 
 
@@ -121,35 +121,13 @@ def guardar_vehiculo():
             # Convert DB format (CABINA-01) to PresenceService format (cabina-01)
             next_free_cabin_presence = next_free_cabin.replace("CABINA-", "cabina-").lower()
             
-            # Get cabin info to check minimum distance (floor level)
-            next_cabin_info = get_cabin(next_free_cabin)
-            minimum_distance = None
-            if next_cabin_info:
-                try:
-                    minimum_distance_value = next_cabin_info["minimum_distance"]
-                    if minimum_distance_value is not None:
-                        minimum_distance = int(minimum_distance_value)
-                except (KeyError, IndexError, ValueError, TypeError):
-                    minimum_distance = None
-            
             # Get motor control service
             motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
             current_app.logger.info(f"Motor control service available: {motor_service is not None}")
             
-            # If no minimum_distance in DB, try to get current distance from presence service as fallback
-            if not minimum_distance and motor_service:
-                current_app.logger.info(f"No minimum distance in DB for {next_free_cabin}, checking current distance...")
-                snapshot = presence_service.snapshot(cabin_id=next_free_cabin_presence)
-                if isinstance(snapshot, dict):
-                    distance_data = snapshot.get("distance")
-                    if distance_data and isinstance(distance_data, dict):
-                        current_dist = distance_data.get("mm")
-                        if current_dist is not None:
-                            # Use current distance as temporary minimum (assuming it's already at or near floor)
-                            minimum_distance = int(current_dist)
-                            current_app.logger.info(
-                                f"Using current distance {minimum_distance}mm as temporary floor reference for {next_free_cabin}"
-                            )
+            # Note: We no longer need to check minimum_distance here because the cabin firmware
+            # will automatically detect when it reaches floor level and publish a floor/reached event.
+            # The firmware uses its stored floor level (from calibration) to detect floor arrival.
             
             # Always try to start motor if service is available
             if motor_service:

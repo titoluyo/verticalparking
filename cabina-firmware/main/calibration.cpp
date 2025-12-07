@@ -77,67 +77,107 @@ bool calibration_process_sample(calibration_state_t *state, int distance_mm) {
         state->max_distance_tracked = distance_mm;
     }
     
+    // Log progress periodically for debugging
+    if (state->sample_count % 50 == 0) {
+        ESP_LOGD(TAG, "Calibration progress: samples=%d, range=%d-%d, rotations=%d, state=%d, current=%d",
+                state->sample_count, state->min_distance_tracked, state->max_distance_tracked,
+                state->rotation_count, state->rotation_state, distance_mm);
+    }
+    
     // Rotation detection algorithm
     // Pattern: min → max → min (one complete rotation)
+    // Use a more robust algorithm that tracks significant changes in direction
     switch (state->rotation_state) {
         case ROT_STATE_INIT:
             // Should not happen, but handle gracefully
             state->rotation_state = ROT_STATE_SEEKING_MIN;
             state->last_min_distance = distance_mm;
+            state->samples_since_min = 0;
             break;
             
         case ROT_STATE_SEEKING_MIN:
             // Looking for minimum (floor level)
-            if (distance_mm <= state->last_min_distance + CALIBRATION_ROTATION_TOLERANCE_MM) {
-                // Found a new minimum or still at minimum
-                if (distance_mm < state->last_min_distance) {
-                    state->last_min_distance = distance_mm;
-                    state->samples_since_min = 0;
-                } else {
-                    state->samples_since_min++;
-                }
+            if (distance_mm < state->last_min_distance) {
+                // Found a new minimum - update and reset counter
+                state->last_min_distance = distance_mm;
+                state->samples_since_min = 0;
+                ESP_LOGD(TAG, "New minimum found: %d mm", distance_mm);
+            } else if (distance_mm <= state->last_min_distance + CALIBRATION_ROTATION_TOLERANCE_MM) {
+                // Still near minimum - increment counter
+                state->samples_since_min++;
             } else {
-                // Distance increased significantly, transition to seeking max
-                if (state->samples_since_min >= 3) {  // Require a few samples at min to confirm
+                // Distance increased significantly from minimum
+                // Check if we've been at/near minimum for at least a few samples
+                // Reduced requirement from 3 to 2 samples for faster detection
+                if (state->samples_since_min >= 2) {
+                    // We've confirmed we were at minimum, now moving up
                     state->rotation_state = ROT_STATE_SEEKING_MAX;
                     state->last_max_distance = distance_mm;
                     state->samples_since_max = 0;
-                    ESP_LOGI(TAG, "Rotation: Found minimum %d mm, now seeking maximum", state->last_min_distance);
+                    ESP_LOGI(TAG, "Rotation: Found minimum %d mm (after %d samples), now seeking maximum (current: %d mm)", 
+                            state->last_min_distance, state->samples_since_min, distance_mm);
+                } else {
+                    // Not enough samples at min yet - might still be finding the actual min
+                    // But if distance increased a lot, we might have missed the transition
+                    int increase = distance_mm - state->last_min_distance;
+                    if (increase > CALIBRATION_ROTATION_TOLERANCE_MM * 3) {
+                        // Large increase - probably moved past min, force transition
+                        state->rotation_state = ROT_STATE_SEEKING_MAX;
+                        state->last_max_distance = distance_mm;
+                        state->samples_since_max = 0;
+                        ESP_LOGW(TAG, "Large distance increase (%d mm), forcing transition to SEEKING_MAX", increase);
+                    }
                 }
             }
             break;
             
         case ROT_STATE_SEEKING_MAX:
             // Looking for maximum (top level)
-            if (distance_mm >= state->last_max_distance - CALIBRATION_ROTATION_TOLERANCE_MM) {
-                // Found a new maximum or still at maximum
-                if (distance_mm > state->last_max_distance) {
-                    state->last_max_distance = distance_mm;
-                    state->samples_since_max = 0;
-                } else {
-                    state->samples_since_max++;
-                }
+            if (distance_mm > state->last_max_distance) {
+                // Found a new maximum - update and reset counter
+                state->last_max_distance = distance_mm;
+                state->samples_since_max = 0;
+                ESP_LOGD(TAG, "New maximum found: %d mm", distance_mm);
+            } else if (distance_mm >= state->last_max_distance - CALIBRATION_ROTATION_TOLERANCE_MM) {
+                // Still near maximum - increment counter
+                state->samples_since_max++;
             } else {
-                // Distance decreased significantly, transition to completing
-                if (state->samples_since_max >= 3) {  // Require a few samples at max to confirm
+                // Distance decreased significantly from maximum
+                // Check if we've been at/near maximum for at least a few samples
+                if (state->samples_since_max >= 2) {
+                    // We've confirmed we were at maximum, now moving down
                     state->rotation_state = ROT_STATE_COMPLETING;
-                    ESP_LOGI(TAG, "Rotation: Found maximum %d mm, now completing rotation", state->last_max_distance);
+                    ESP_LOGI(TAG, "Rotation: Found maximum %d mm (after %d samples), now completing rotation (current: %d mm)", 
+                            state->last_max_distance, state->samples_since_max, distance_mm);
+                } else {
+                    // Not enough samples at max yet - might still be finding the actual max
+                    // But if distance decreased a lot, we might have missed the transition
+                    int decrease = state->last_max_distance - distance_mm;
+                    if (decrease > CALIBRATION_ROTATION_TOLERANCE_MM * 3) {
+                        // Large decrease - probably moved past max, force transition
+                        state->rotation_state = ROT_STATE_COMPLETING;
+                        ESP_LOGW(TAG, "Large distance decrease (%d mm), forcing transition to COMPLETING", decrease);
+                    }
                 }
             }
             break;
             
         case ROT_STATE_COMPLETING:
             // Returning to minimum (completing rotation)
-            if (distance_mm <= state->last_min_distance + CALIBRATION_ROTATION_TOLERANCE_MM) {
+            // Check if we're back near the minimum we found at the start of this rotation
+            int distance_from_min = distance_mm - state->last_min_distance;
+            if (distance_from_min < 0) distance_from_min = -distance_from_min;  // abs
+            
+            if (distance_from_min <= CALIBRATION_ROTATION_TOLERANCE_MM) {
                 // Back at minimum - rotation complete!
                 state->rotation_count++;
                 state->round = state->rotation_count;
-                ESP_LOGI(TAG, "Rotation %d complete! (min=%d, max=%d)", 
-                        state->rotation_count, state->last_min_distance, state->last_max_distance);
+                ESP_LOGI(TAG, "Rotation %d complete! (min=%d, max=%d, current=%d)", 
+                        state->rotation_count, state->last_min_distance, state->last_max_distance, distance_mm);
                 
                 // Reset for next rotation
                 state->rotation_state = ROT_STATE_SEEKING_MIN;
-                state->last_min_distance = distance_mm;
+                state->last_min_distance = distance_mm;  // Update to current position
                 state->samples_since_min = 0;
                 
                 // Check if we've completed 2 rotations
@@ -163,6 +203,9 @@ bool calibration_process_sample(calibration_state_t *state, int distance_mm) {
                     state->active = false;
                     return true;
                 }
+            } else if (distance_mm < state->last_min_distance) {
+                // Found a new minimum while completing - update it
+                state->last_min_distance = distance_mm;
             }
             break;
     }
