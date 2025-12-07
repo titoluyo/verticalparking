@@ -58,6 +58,33 @@ int telemetry_json_distance(int from_mm, int to_mm,
  */
 int telemetry_json_status(char *json_buf, size_t json_buf_sz);
 
+/**
+ * @brief Build JSON message for calibration complete event
+ * 
+ * @param floor_level_mm Calculated floor level in mm
+ * @param calibration_rounds Number of calibration rounds completed
+ * @param min_distance_mm Minimum distance seen during calibration
+ * @param max_distance_mm Maximum distance seen during calibration
+ * @param json_buf Buffer to store JSON string
+ * @param json_buf_sz Size of JSON buffer
+ * @return Number of characters written (excluding null terminator), or -1 on error
+ */
+int telemetry_json_calibration_complete(int floor_level_mm, int calibration_rounds,
+                                        int min_distance_mm, int max_distance_mm,
+                                        char *json_buf, size_t json_buf_sz);
+
+/**
+ * @brief Build JSON message for floor reached event
+ * 
+ * @param distance_mm Current distance in mm
+ * @param floor_level_mm Floor level in mm
+ * @param json_buf Buffer to store JSON string
+ * @param json_buf_sz Size of JSON buffer
+ * @return Number of characters written (excluding null terminator), or -1 on error
+ */
+int telemetry_json_floor_reached(int distance_mm, int floor_level_mm,
+                                 char *json_buf, size_t json_buf_sz);
+
 #ifdef __cplusplus
 }
 #endif

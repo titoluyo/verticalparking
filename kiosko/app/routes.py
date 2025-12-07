@@ -152,40 +152,55 @@ def guardar_vehiculo():
             
             # Always try to start motor if service is available
             if motor_service:
-                # Define callback to activate cabin when it reaches floor
-                def on_floor_reached(cabin_id: str):
-                    """Callback when cabin reaches floor level."""
+                # Define callback to handle floor reached event
+                def on_floor_reached(cabin_id: str, event_data: dict):
+                    """Callback when cabin reaches floor level (from MQTT event)."""
                     # Convert to PresenceService format if needed
                     cabin_id_presence = cabin_id.replace("CABINA-", "cabina-").lower() if cabin_id.startswith("CABINA-") else cabin_id
+                    
+                    # Stop motor
+                    motor_service.stop_motor(cabin_id_presence)
+                    current_app.logger.info(f"Motor stopped for {cabin_id_presence} (floor reached)")
+                    
+                    # Activate cabin
                     presence_service.set_active_cabin(cabin_id_presence)
-                    current_app.logger.info(f"Cabin {cabin_id} reached floor - activated as active cabin")
+                    current_app.logger.info(f"Cabin {cabin_id_presence} reached floor - activated as active cabin")
+                    
+                    # Update database minimum_distance if provided in event
+                    floor_level_mm = event_data.get("floor_level_mm")
+                    if floor_level_mm:
+                        # Convert to DB format
+                        cabin_id_db = cabin_id_presence.replace("cabina-", "CABINA-").upper()
+                        update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
+                        current_app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm")
+                
+                # Register floor reached callback (only for this specific cabin)
+                # Note: This callback will be called for any floor event, but we check cabin_id
+                def floor_callback(cabin_id: str, event_data: dict):
+                    if cabin_id == next_free_cabin_presence:
+                        on_floor_reached(cabin_id, event_data)
+                        # Unregister callback after use (one-time event)
+                        try:
+                            with presence_service._callbacks_lock:
+                                if floor_callback in presence_service._floor_reached_callbacks:
+                                    presence_service._floor_reached_callbacks.remove(floor_callback)
+                        except (ValueError, AttributeError):
+                            pass
+                
+                presence_service.register_floor_reached_callback(floor_callback)
                 
                 # Start motor
                 current_app.logger.info(f"Starting motor to move {next_free_cabin_presence} to floor...")
                 motor_started = motor_service.start_motor(next_free_cabin_presence)
                 
                 if motor_started:
-                    current_app.logger.info(f"Motor started successfully for {next_free_cabin_presence}")
-                    
-                    # If we have minimum_distance, monitor and auto-stop when floor is reached
-                    if minimum_distance:
-                        current_app.logger.info(
-                            f"Monitoring {next_free_cabin_presence} distance (target: {minimum_distance}mm ±10mm)"
-                        )
-                        motor_service.start_monitoring(
-                            target_cabin=next_free_cabin_presence,
-                            minimum_distance=minimum_distance,
-                            presence_service=presence_service,
-                            stop_callback=on_floor_reached,
-                            tolerance=10  # 10mm tolerance for floor detection
-                        )
-                    else:
-                        current_app.logger.warning(
-                            f"No minimum distance available for {next_free_cabin_presence}, "
-                            f"motor started but will not auto-stop. Monitor manually or calibrate floor level."
-                        )
+                    current_app.logger.info(
+                        f"Motor started for {next_free_cabin_presence}. "
+                        f"Waiting for floor/reached event from cabin firmware..."
+                    )
                     
                     # Set as active cabin (motor is moving it to floor)
+                    # The cabin firmware will detect floor and publish event, which will stop motor
                     presence_service.set_active_cabin(next_free_cabin_presence)
                 else:
                     current_app.logger.error(f"Failed to start motor for {next_free_cabin_presence}")

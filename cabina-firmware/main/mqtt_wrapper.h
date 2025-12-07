@@ -66,6 +66,18 @@ esp_err_t mqtt_client_subscribe(const char *topic, int qos);
  */
 esp_err_t mqtt_client_get_topic(const char *subtopic, char *topic_buf, size_t buf_len);
 
+/**
+ * @brief Message callback function type
+ */
+typedef void (*mqtt_message_callback_t)(const char *topic, const char *data, int data_len);
+
+/**
+ * @brief Set callback function for received MQTT messages
+ * 
+ * @param callback Callback function (NULL to disable)
+ */
+void mqtt_client_set_message_callback(mqtt_message_callback_t callback);
+
 #ifdef __cplusplus
 }
 #endif

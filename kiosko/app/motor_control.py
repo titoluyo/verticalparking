@@ -51,6 +51,9 @@ class MotorControlService:
         self._distance_cache: dict = {}
         self._lock = threading.Lock()
         
+        # Calibration state per cabin
+        self._calibration_state: Dict[str, bool] = {}  # {cabin_id: is_calibrating}
+        
         # MQTT client for commands (separate from monitoring)
         self._command_client: Optional[mqtt.Client] = None
     
@@ -114,6 +117,61 @@ class MotorControlService:
             True if command sent successfully
         """
         return self.send_motor_command("OFF")
+    
+    def send_calibration_command(self, cabin_id: str, command: str) -> bool:
+        """Send calibration command to a cabin via MQTT.
+        
+        Args:
+            cabin_id: Cabin ID (e.g., "cabina-01")
+            command: Command type ("start" or "stop")
+        
+        Returns:
+            True if command sent successfully
+        """
+        try:
+            # Build command topic: parking/{site}/{cabin_id}/cmd
+            topic = f"{self.topic_base}/{self.site}/{cabin_id}/cmd"
+            
+            # Build JSON payload
+            if command.lower() == "start":
+                payload = json.dumps({"start_calibration": True})
+                with self._lock:
+                    self._calibration_state[cabin_id] = True
+            elif command.lower() == "stop":
+                payload = json.dumps({"stop_calibration": True})
+                with self._lock:
+                    self._calibration_state[cabin_id] = False
+            else:
+                self.logger.error(f"Invalid calibration command: {command}. Must be 'start' or 'stop'")
+                return False
+            
+            # Create temporary MQTT client for command
+            client = mqtt.Client(client_id=f"motor-calibration-{int(time.time())}")
+            if self.username and self.password:
+                client.username_pw_set(self.username, self.password)
+            
+            client.connect(self.broker, self.port, 60)
+            client.publish(topic, payload, qos=1, retain=False)
+            client.disconnect()
+            
+            self.logger.info(f"Sent calibration {command} command to {cabin_id} via topic: {topic}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error sending calibration command: {e}", exc_info=True)
+            return False
+    
+    def is_calibrating(self, cabin_id: str) -> bool:
+        """Check if a cabin is currently calibrating.
+        
+        Args:
+            cabin_id: Cabin ID to check
+        
+        Returns:
+            True if cabin is calibrating
+        """
+        with self._lock:
+            return self._calibration_state.get(cabin_id, False)
     
     def move_to_floor(self, cabin_id: str = None) -> bool:
         """Send command to move cabin to floor level (starts motor).

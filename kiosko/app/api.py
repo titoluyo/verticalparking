@@ -15,6 +15,7 @@ except ImportError:
 import paho.mqtt.client as mqtt
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
 from .database import cleanup_tickets, reset_cabins, cleanup_all, get_ticket_by_token, get_all_cabins, update_cabin_minimum_distance, get_cabin
+from .motor_control import MotorControlService
 from .qr_detector import QRDetector
 
 
@@ -643,6 +644,121 @@ def camera_detect_qr():
         return jsonify({"error": f"Error processing image: {str(e)}"}), 500
 
 
+@bp.route("/calibrate/cabin/<cabin_id>", methods=["POST"])
+def calibrate_cabin(cabin_id: str):
+    """Start calibration for a cabin.
+    
+    This endpoint:
+    1. Sends start_calibration command to the cabin
+    2. Starts the motor (sends "ON" to motor topic)
+    3. Returns status immediately
+    4. Calibration completion will be handled via MQTT event callbacks
+    
+    Args:
+        cabin_id: Cabin ID (e.g., "cabina-01" or "CABINA-01")
+    
+    Returns:
+        JSON with calibration status
+    """
+    # Normalize cabin ID format
+    if cabin_id.startswith("CABINA-"):
+        cabin_id_mqtt = cabin_id.replace("CABINA-", "cabina-").lower()
+    elif cabin_id.startswith("cabina-"):
+        cabin_id_mqtt = cabin_id.lower()
+    else:
+        # Try to parse as number
+        try:
+            num = int(cabin_id)
+            cabin_id_mqtt = f"cabina-{num:02d}"
+        except ValueError:
+            return jsonify({"error": f"Invalid cabin_id format: {cabin_id}"}), 400
+    
+    # Get motor control service
+    motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
+    if not motor_service:
+        return jsonify({"error": "Motor control service unavailable"}), 503
+    
+    # Check if already calibrating
+    if motor_service.is_calibrating(cabin_id_mqtt):
+        return jsonify({
+            "success": False,
+            "error": f"Cabin {cabin_id_mqtt} is already calibrating",
+            "cabin_id": cabin_id_mqtt
+        }), 400
+    
+    # Send calibration start command
+    success = motor_service.send_calibration_command(cabin_id_mqtt, "start")
+    if not success:
+        return jsonify({
+            "success": False,
+            "error": "Failed to send calibration command",
+            "cabin_id": cabin_id_mqtt
+        }), 500
+    
+    # Start motor (calibration requires motor to run)
+    motor_started = motor_service.start_motor(cabin_id_mqtt)
+    if not motor_started:
+        current_app.logger.warning(f"Calibration started for {cabin_id_mqtt} but motor start failed")
+    
+    current_app.logger.info(f"Calibration started for {cabin_id_mqtt}")
+    
+    return jsonify({
+        "success": True,
+        "message": f"Calibration started for {cabin_id_mqtt}",
+        "cabin_id": cabin_id_mqtt,
+        "motor_started": motor_started,
+        "expected_duration": "2 full rotations (time varies by motor speed)"
+    }), 200
+
+
+@bp.route("/calibrate/cabin/<cabin_id>/stop", methods=["POST"])
+def stop_calibration(cabin_id: str):
+    """Stop calibration for a cabin (emergency cancel).
+    
+    Args:
+        cabin_id: Cabin ID (e.g., "cabina-01" or "CABINA-01")
+    
+    Returns:
+        JSON with status
+    """
+    # Normalize cabin ID format
+    if cabin_id.startswith("CABINA-"):
+        cabin_id_mqtt = cabin_id.replace("CABINA-", "cabina-").lower()
+    elif cabin_id.startswith("cabina-"):
+        cabin_id_mqtt = cabin_id.lower()
+    else:
+        try:
+            num = int(cabin_id)
+            cabin_id_mqtt = f"cabina-{num:02d}"
+        except ValueError:
+            return jsonify({"error": f"Invalid cabin_id format: {cabin_id}"}), 400
+    
+    # Get motor control service
+    motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
+    if not motor_service:
+        return jsonify({"error": "Motor control service unavailable"}), 503
+    
+    # Send calibration stop command
+    success = motor_service.send_calibration_command(cabin_id_mqtt, "stop")
+    if not success:
+        return jsonify({
+            "success": False,
+            "error": "Failed to send stop calibration command",
+            "cabin_id": cabin_id_mqtt
+        }), 500
+    
+    # Stop motor
+    motor_service.stop_motor(cabin_id_mqtt)
+    
+    current_app.logger.info(f"Calibration stopped for {cabin_id_mqtt}")
+    
+    return jsonify({
+        "success": True,
+        "message": f"Calibration stopped for {cabin_id_mqtt}",
+        "cabin_id": cabin_id_mqtt
+    }), 200
+
+
 @bp.route("/cabin/move-to-floor", methods=["POST"])
 def move_cabin_to_floor():
     """Send MQTT command to move cabin to floor level.
@@ -1129,12 +1245,19 @@ def dashboard_cabins():
             
             is_active = (mqtt_id == active_cabin_mqtt) if active_cabin_mqtt else False
             
+            # Check calibration status
+            motor_service = current_app.config.get("MOTOR_CONTROL_SERVICE")
+            is_calibrating = False
+            if motor_service:
+                is_calibrating = motor_service.is_calibrating(mqtt_id)
+            
             cabin_data = {
                 "id": db_id,
                 "id_mqtt": mqtt_id,
                 "estado": estado,
                 "updated_at": updated_at,
                 "is_active": is_active,
+                "calibrating": is_calibrating,
                 "sensors": {
                     "entry": {
                         "present": entry_sensor.get("present", False),

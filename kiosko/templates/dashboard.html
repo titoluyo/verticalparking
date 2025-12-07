@@ -159,6 +159,18 @@
               </span>
             </div>
           </div>
+          
+          <div class="cabin-card__calibration">
+            <button class="btn-calibrate" data-cabin-id="${cabin.id}" 
+                    ${cabin.calibrating ? 'disabled' : ''}>
+              ${cabin.calibrating ? 'Calibrando...' : 'Calibrar'}
+            </button>
+            <span class="calibration-status">
+              ${cabin.sensors.distance && cabin.sensors.distance.min_mm !== null 
+                ? `Calibrado (${cabin.sensors.distance.min_mm}mm)` 
+                : 'No calibrado'}
+            </span>
+          </div>
         </div>
       `;
     }).join('');
@@ -211,6 +223,45 @@
   }
   
   btnRefresh.addEventListener('click', loadDashboard);
+  
+  // Handle calibration button clicks
+  cabinsGrid.addEventListener('click', (e) => {
+    if (e.target.classList.contains('btn-calibrate')) {
+      const cabinId = e.target.getAttribute('data-cabin-id');
+      if (!cabinId) return;
+      
+      // Disable button and show loading
+      e.target.disabled = true;
+      e.target.textContent = 'Iniciando...';
+      
+      // Send calibration request
+      fetch(`/api/calibrate/cabin/${cabinId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          e.target.textContent = 'Calibrando...';
+          e.target.disabled = true;
+          // Show success message
+          alert(`Calibración iniciada para ${cabinId}. El motor se detendrá automáticamente después de 2 rotaciones.`);
+        } else {
+          e.target.disabled = false;
+          e.target.textContent = 'Calibrar';
+          alert(`Error: ${data.error || 'No se pudo iniciar la calibración'}`);
+        }
+      })
+      .catch(err => {
+        console.error('Error starting calibration:', err);
+        e.target.disabled = false;
+        e.target.textContent = 'Calibrar';
+        alert('Error al iniciar la calibración. Intente nuevamente.');
+      });
+    }
+  });
   
   // Load initially
   loadDashboard();

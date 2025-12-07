@@ -5,7 +5,7 @@ Initializes DB, blueprints, sessions, and Swagger docs.
 import logging
 from flask import Flask
 from flasgger import Swagger
-from .database import init_db
+from .database import init_db, update_cabin_minimum_distance
 from .routes import bp as routes_bp
 from .api import bp as api_bp
 from .presence import presence_service_from_env
@@ -40,6 +40,19 @@ def create_app() -> Flask:
     try:
         app.logger.info("Starting presence service...")
         presence_service = presence_service_from_env(app.logger)
+        
+        # Register callback for calibration_complete events to update database
+        def on_calibration_complete(cabin_id: str, event_data: dict):
+            """Handle calibration complete events by updating database."""
+            floor_level_mm = event_data.get("floor_level_mm")
+            if floor_level_mm:
+                # Convert cabin_id to DB format (cabina-01 -> CABINA-01)
+                cabin_id_db = cabin_id.replace("cabina-", "CABINA-").upper()
+                update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
+                app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm (from calibration)")
+        
+        presence_service.register_calibration_complete_callback(on_calibration_complete)
+        
         presence_service.start()
         app.config["PRESENCE_SERVICE"] = presence_service
         app.logger.info("Presence service started.")

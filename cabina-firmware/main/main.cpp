@@ -11,10 +11,46 @@
 #include "vl53l0x.h"
 #include "edge_detect.h"
 #include "telemetry.h"
+#include "calibration.h"
 #include <cstdio>
 #include <cstring>
 
 static const char *TAG = "cabina_firmware";
+
+// Global calibration state
+static calibration_state_t g_calibration_state;
+static bool g_floor_detected_last = false;  // Track floor detection state for edge detection
+static i2c_port_t g_i2c_port = I2C_NUM_0;  // Store I2C port for callback
+
+// Command handler function
+static void handle_mqtt_command(const char *topic, const char *data, int data_len) {
+    // Check if this is a command topic
+    char expected_cmd_topic[160];
+    snprintf(expected_cmd_topic, sizeof(expected_cmd_topic), "%s/%s/%s/cmd",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    
+    if (strcmp(topic, expected_cmd_topic) != 0) {
+        return;
+    }
+    
+    // Simple JSON parsing for commands
+    // Look for "start_calibration": true or "stop_calibration": true
+    if (strstr(data, "\"start_calibration\"") != NULL && strstr(data, "true") != NULL) {
+        // Get current distance to start calibration
+        int current_dist = vl53l0x_read_range_mm(g_i2c_port);
+        if (current_dist >= 0) {
+            calibration_start(&g_calibration_state, current_dist);
+            ESP_LOGI(TAG, "Calibration started via MQTT command (initial distance: %d mm)", current_dist);
+        } else {
+            ESP_LOGW(TAG, "Cannot start calibration: invalid distance reading");
+        }
+    } else if (strstr(data, "\"stop_calibration\"") != NULL && strstr(data, "true") != NULL) {
+        calibration_stop(&g_calibration_state);
+        ESP_LOGI(TAG, "Calibration stopped via MQTT command");
+    }
+}
 
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Cabina Firmware Starting");
@@ -57,8 +93,8 @@ extern "C" void app_main(void) {
     }
 
     // Initialize I2C bus
-    const i2c_port_t i2c_port = I2C_NUM_0;
-    if (i2c_bus_init(i2c_port, 
+    g_i2c_port = I2C_NUM_0;
+    if (i2c_bus_init(g_i2c_port, 
                      CONFIG_EXAMPLE_I2C_SDA_GPIO, 
                      CONFIG_EXAMPLE_I2C_SCL_GPIO, 
                      CONFIG_EXAMPLE_I2C_CLOCK_SPEED_HZ) != ESP_OK) {
@@ -67,9 +103,9 @@ extern "C" void app_main(void) {
     }
 
     // Initialize VL53L0X sensor
-    if (vl53l0x_init(i2c_port) != VL53L0X_OK) {
+    if (vl53l0x_init(g_i2c_port) != VL53L0X_OK) {
         ESP_LOGE(TAG, "VL53L0X initialization failed");
-        i2c_bus_deinit(i2c_port);
+        i2c_bus_deinit(g_i2c_port);
         return;
     }
 
@@ -81,12 +117,47 @@ extern "C" void app_main(void) {
     edge_state_t edge_state;
     edge_detect_init(&edge_state);
 
+    // Initialize calibration
+    calibration_init(&g_calibration_state);
+
     // Build MQTT topics
     char topic_ir1[160], topic_ir2[160], topic_dist[160], topic_stat[160];
+    char topic_cmd[160], topic_calib[160], topic_floor[160];
     telemetry_build_topics(topic_ir1, sizeof(topic_ir1),
                           topic_ir2, sizeof(topic_ir2),
                           topic_dist, sizeof(topic_dist),
                           topic_stat, sizeof(topic_stat));
+    
+    // Build calibration and floor topics
+    snprintf(topic_cmd, sizeof(topic_cmd), "%s/%s/%s/cmd",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(topic_calib, sizeof(topic_calib), "%s/%s/%s/calibration/complete",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(topic_floor, sizeof(topic_floor), "%s/%s/%s/floor/reached",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    
+    // Set up MQTT message callback for commands
+    mqtt_client_set_message_callback(handle_mqtt_command);
+    
+    // Subscribe to command topic when MQTT connects (retry if not connected yet)
+    int retry_count = 0;
+    while (!mqtt_client_is_connected() && retry_count < 10) {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        retry_count++;
+    }
+    
+    if (mqtt_client_is_connected()) {
+        mqtt_client_subscribe(topic_cmd, 1);
+        ESP_LOGI(TAG, "Subscribed to command topic: %s", topic_cmd);
+    } else {
+        ESP_LOGW(TAG, "MQTT not connected, will subscribe when connected");
+    }
 
     // Publish online status if MQTT is connected
     if (mqtt_client_is_connected()) {
@@ -101,8 +172,20 @@ extern "C" void app_main(void) {
     int64_t last_status_publish_ms = 0;
     const int64_t status_interval_ms = (int64_t)CONFIG_EXAMPLE_STATUS_INTERVAL_SEC * 1000;
     
+    // Subscribe to command topic if MQTT just connected
+    bool subscribed_to_cmd = false;
+    
     while (true) {
-        int distance_mm = vl53l0x_read_range_mm(i2c_port);
+        // Check if MQTT just connected and subscribe to command topic
+        if (mqtt_client_is_connected() && !subscribed_to_cmd) {
+            mqtt_client_subscribe(topic_cmd, 1);
+            ESP_LOGI(TAG, "Subscribed to command topic: %s", topic_cmd);
+            subscribed_to_cmd = true;
+        } else if (!mqtt_client_is_connected() && subscribed_to_cmd) {
+            subscribed_to_cmd = false;  // Reset if disconnected
+        }
+        
+        int distance_mm = vl53l0x_read_range_mm(g_i2c_port);
         ir_sensors_state_t ir_state;
         ir_sensors_read(&ir_state);
         
@@ -119,6 +202,56 @@ extern "C" void app_main(void) {
                    ir_state.ir1_present ? 1 : 0, 
                    ir_state.ir2_present ? 1 : 0);
             ESP_LOGW(TAG, "Failed to read distance");
+        }
+
+        // Process calibration if active
+        if (g_calibration_state.active && distance_mm >= 0) {
+            bool calib_complete = calibration_process_sample(&g_calibration_state, distance_mm);
+            
+            if (calib_complete) {
+                // Calibration complete - publish event
+                if (mqtt_client_is_connected()) {
+                    char calib_json[512];
+                    int json_len = telemetry_json_calibration_complete(
+                        g_calibration_state.floor_level,
+                        2,  // calibration_rounds
+                        g_calibration_state.min_distance_tracked,
+                        g_calibration_state.max_distance_tracked,
+                        calib_json, sizeof(calib_json));
+                    
+                    if (json_len > 0) {
+                        mqtt_client_publish_json(topic_calib, calib_json, 1, false);
+                        ESP_LOGI(TAG, "Published calibration_complete event: floor_level=%d mm",
+                                g_calibration_state.floor_level);
+                    }
+                }
+            }
+        }
+        
+        // Check for floor detection during normal operation (not calibrating)
+        bool is_at_floor = false;
+        if (!g_calibration_state.active && distance_mm >= 0 && g_calibration_state.floor_level_valid) {
+            is_at_floor = calibration_is_at_floor(&g_calibration_state, distance_mm);
+            
+            // Detect edge: transition TO floor (not already at floor)
+            if (is_at_floor && !g_floor_detected_last) {
+                // Just reached floor - publish event
+                if (mqtt_client_is_connected()) {
+                    char floor_json[256];
+                    int json_len = telemetry_json_floor_reached(
+                        distance_mm,
+                        g_calibration_state.floor_level,
+                        floor_json, sizeof(floor_json));
+                    
+                    if (json_len > 0) {
+                        mqtt_client_publish_json(topic_floor, floor_json, 1, false);
+                        ESP_LOGI(TAG, "Published floor/reached event: distance=%d mm, floor_level=%d mm",
+                                distance_mm, g_calibration_state.floor_level);
+                    }
+                }
+            }
+            
+            g_floor_detected_last = is_at_floor;
         }
 
         // Create sensor snapshot

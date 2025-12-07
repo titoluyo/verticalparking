@@ -36,7 +36,8 @@ typedef enum {
     EV_NONE = 0,    ///< No event
     EV_IR1,         ///< IR1 sensor state changed
     EV_IR2,         ///< IR2 sensor state changed
-    EV_DISTANCE     ///< Distance changed significantly
+    EV_DISTANCE,    ///< Distance changed significantly
+    EV_FLOOR_REACHED ///< Cabin reached floor level
 } event_type_t;
 
 /**

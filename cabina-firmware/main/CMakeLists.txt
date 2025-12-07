@@ -6,5 +6,6 @@ idf_component_register(SRCS "main.cpp"
                               "mqtt_client.cpp"
                               "edge_detect.cpp"
                               "telemetry.cpp"
+                              "calibration.cpp"
                        INCLUDE_DIRS "."
                        REQUIRES driver esp_timer esp_wifi esp_netif esp_event nvs_flash freertos mqtt)

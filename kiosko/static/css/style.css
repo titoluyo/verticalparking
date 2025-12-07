@@ -146,6 +146,40 @@ button, .btn, input { min-height: 48px; }
 .sensor-value--active { color: var(--primary); }
 .sensor-value--muted { color: var(--muted); opacity: 0.6; }
 
+.cabin-card__calibration { 
+  margin-top: 12px; 
+  padding-top: 12px; 
+  border-top: 1px solid #30363d; 
+  display: flex; 
+  flex-direction: column; 
+  gap: 6px; 
+}
+.btn-calibrate { 
+  padding: 8px 12px; 
+  font-size: 12px; 
+  background: var(--primary); 
+  color: var(--bg); 
+  border: none; 
+  border-radius: 6px; 
+  cursor: pointer; 
+  font-weight: 600; 
+  transition: opacity 0.2s ease;
+  min-height: 32px;
+}
+.btn-calibrate:hover:not(:disabled) { 
+  opacity: 0.9; 
+}
+.btn-calibrate:disabled { 
+  opacity: 0.6; 
+  cursor: not-allowed; 
+  background: var(--secondary);
+}
+.calibration-status { 
+  font-size: 11px; 
+  color: var(--muted); 
+  font-style: italic; 
+}
+
 @media (max-width: 768px) {
   .cabins-grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard-controls { flex-direction: column; align-items: flex-start; }

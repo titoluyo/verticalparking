@@ -1,5 +1,6 @@
 #include "telemetry.h"
 #include "sdkconfig.h"
+#include "esp_timer.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -73,5 +74,49 @@ int telemetry_json_status(char *json_buf, size_t json_buf_sz) {
                     "{\"site\":\"%s\",\"device\":\"%s\",\"status\":\"online\"}",
                     CONFIG_EXAMPLE_MQTT_SITE_ID,
                     CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+}
+
+int telemetry_json_calibration_complete(int floor_level_mm, int calibration_rounds,
+                                        int min_distance_mm, int max_distance_mm,
+                                        char *json_buf, size_t json_buf_sz) {
+    if (!json_buf || json_buf_sz == 0) {
+        return -1;
+    }
+    
+    // Get current timestamp
+    int64_t ts_us = esp_timer_get_time();
+    double ts = (double)ts_us / 1e6;
+    
+    return snprintf(json_buf, json_buf_sz,
+                    "{\"site\":\"%s\",\"device\":\"%s\",\"floor_level_mm\":%d,"
+                    "\"calibration_rounds\":%d,\"min_distance_mm\":%d,"
+                    "\"max_distance_mm\":%d,\"ts\":%.3f}",
+                    CONFIG_EXAMPLE_MQTT_SITE_ID,
+                    CONFIG_EXAMPLE_MQTT_DEVICE_ID,
+                    floor_level_mm,
+                    calibration_rounds,
+                    min_distance_mm,
+                    max_distance_mm,
+                    ts);
+}
+
+int telemetry_json_floor_reached(int distance_mm, int floor_level_mm,
+                                char *json_buf, size_t json_buf_sz) {
+    if (!json_buf || json_buf_sz == 0) {
+        return -1;
+    }
+    
+    // Get current timestamp
+    int64_t ts_us = esp_timer_get_time();
+    double ts = (double)ts_us / 1e6;
+    
+    return snprintf(json_buf, json_buf_sz,
+                    "{\"site\":\"%s\",\"device\":\"%s\",\"distance_mm\":%d,"
+                    "\"floor_level_mm\":%d,\"ts\":%.3f}",
+                    CONFIG_EXAMPLE_MQTT_SITE_ID,
+                    CONFIG_EXAMPLE_MQTT_DEVICE_ID,
+                    distance_mm,
+                    floor_level_mm,
+                    ts);
 }
 

@@ -7,7 +7,7 @@ import os
 import queue
 import threading
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import paho.mqtt.client as mqtt
 
@@ -65,6 +65,11 @@ class PresenceService:
         self._multi_cabin_mode = cabins is not None and len(cabins) > 0
         # Active cabin for vehicle entrance monitoring (only one active at a time)
         self._active_cabin: Optional[str] = None
+        
+        # Callbacks for floor and calibration events
+        self._floor_reached_callbacks: list[Callable[[str, Dict[str, Any]], None]] = []
+        self._calibration_complete_callbacks: list[Callable[[str, Dict[str, Any]], None]] = []
+        self._callbacks_lock = threading.Lock()
         if self._multi_cabin_mode and cabins:
             # Default to first cabin
             self._active_cabin = cabins[0]
@@ -227,6 +232,24 @@ class PresenceService:
         """Get the current active cabin ID."""
         with self._lock:
             return self._active_cabin
+    
+    def register_floor_reached_callback(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
+        """Register a callback for floor/reached events.
+        
+        Args:
+            callback: Function that will be called with (cabin_id, event_data) when floor is reached
+        """
+        with self._callbacks_lock:
+            self._floor_reached_callbacks.append(callback)
+    
+    def register_calibration_complete_callback(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
+        """Register a callback for calibration/complete events.
+        
+        Args:
+            callback: Function that will be called with (cabin_id, event_data) when calibration completes
+        """
+        with self._callbacks_lock:
+            self._calibration_complete_callbacks.append(callback)
     
     def set_active_cabin(self, cabin_id: str) -> bool:
         """Set the active cabin for vehicle entrance monitoring.
@@ -442,10 +465,15 @@ class PresenceService:
                     topic_entry = f"{self.topic_base}/{self.site}/{device_id}/presence/entry"
                     topic_full = f"{self.topic_base}/{self.site}/{device_id}/presence/full"
                     topic_distance = f"{self.topic_base}/{self.site}/{device_id}/distance/event"
+                    topic_floor = f"{self.topic_base}/{self.site}/{device_id}/floor/reached"
+                    topic_calib = f"{self.topic_base}/{self.site}/{device_id}/calibration/complete"
                     client.subscribe(topic_entry, qos=1)
                     client.subscribe(topic_full, qos=1)
                     client.subscribe(topic_distance, qos=0)  # Distance events are non-retained, QoS 0
-                    self.logger.info("Subscribed to %s, %s, and %s", topic_entry, topic_full, topic_distance)
+                    client.subscribe(topic_floor, qos=1)  # Floor events
+                    client.subscribe(topic_calib, qos=1)  # Calibration events
+                    self.logger.info("Subscribed to %s, %s, %s, %s, and %s", 
+                                   topic_entry, topic_full, topic_distance, topic_floor, topic_calib)
             else:
                 # Single-cabin mode
                 if self.topic_entry:
@@ -454,7 +482,7 @@ class PresenceService:
                 if self.topic_full:
                     client.subscribe(self.topic_full, qos=1)
                     self.logger.info("Subscribed to %s", self.topic_full)
-                # Subscribe to distance topic for single-cabin mode
+                # Subscribe to distance, floor, and calibration topics for single-cabin mode
                 # Extract device ID from topic_entry or topic_full
                 if self.topic_entry:
                     # Extract device from topic: parking/site/device/presence/entry
@@ -462,8 +490,12 @@ class PresenceService:
                     if len(parts) >= 3:
                         device_id = parts[2]
                         topic_distance = f"{self.topic_base}/{self.site}/{device_id}/distance/event"
+                        topic_floor = f"{self.topic_base}/{self.site}/{device_id}/floor/reached"
+                        topic_calib = f"{self.topic_base}/{self.site}/{device_id}/calibration/complete"
                         client.subscribe(topic_distance, qos=0)
-                        self.logger.info("Subscribed to %s", topic_distance)
+                        client.subscribe(topic_floor, qos=1)
+                        client.subscribe(topic_calib, qos=1)
+                        self.logger.info("Subscribed to %s, %s, and %s", topic_distance, topic_floor, topic_calib)
         else:
             self._set_status("error", f"connect rc={rc}")
             self.logger.error("Presence MQTT failed rc=%s", rc)
@@ -490,9 +522,15 @@ class PresenceService:
         from_mm = payload.get("from_mm")
         to_mm = payload.get("to_mm")
         is_distance = from_mm is not None or to_mm is not None
+        
+        # Check if this is a floor/reached event
+        is_floor_reached = "floor/reached" in msg.topic or payload.get("floor_level_mm") is not None
+        
+        # Check if this is a calibration/complete event
+        is_calibration_complete = "calibration/complete" in msg.topic or payload.get("calibration_rounds") is not None
 
-        self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s", 
-                         msg.topic, device, sensor, present, is_distance)
+        self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s floor=%s calib=%s", 
+                         msg.topic, device, sensor, present, is_distance, is_floor_reached, is_calibration_complete)
 
         if self._multi_cabin_mode:
             # Extract cabin ID from device name or topic
@@ -508,8 +546,48 @@ class PresenceService:
                         cabin_id = device_part
             
             if cabin_id and cabin_id in self.cabins:
+                # Handle floor/reached events
+                if is_floor_reached:
+                    distance_mm = payload.get("distance_mm")
+                    floor_level_mm = payload.get("floor_level_mm")
+                    self.logger.info("Floor reached event received cabin=%s distance_mm=%s floor_level_mm=%s ts=%s", 
+                                   cabin_id, distance_mm, floor_level_mm, ts)
+                    # Call registered callbacks
+                    with self._callbacks_lock:
+                        for callback in self._floor_reached_callbacks:
+                            try:
+                                callback(cabin_id, {
+                                    "distance_mm": distance_mm,
+                                    "floor_level_mm": floor_level_mm,
+                                    "ts": ts
+                                })
+                            except Exception as e:
+                                self.logger.error("Error in floor_reached callback: %s", e, exc_info=True)
+                
+                # Handle calibration/complete events
+                elif is_calibration_complete:
+                    floor_level_mm = payload.get("floor_level_mm")
+                    calibration_rounds = payload.get("calibration_rounds")
+                    min_distance_mm = payload.get("min_distance_mm")
+                    max_distance_mm = payload.get("max_distance_mm")
+                    self.logger.info("Calibration complete event received cabin=%s floor_level_mm=%s rounds=%s ts=%s", 
+                                   cabin_id, floor_level_mm, calibration_rounds, ts)
+                    # Call registered callbacks
+                    with self._callbacks_lock:
+                        for callback in self._calibration_complete_callbacks:
+                            try:
+                                callback(cabin_id, {
+                                    "floor_level_mm": floor_level_mm,
+                                    "calibration_rounds": calibration_rounds,
+                                    "min_distance_mm": min_distance_mm,
+                                    "max_distance_mm": max_distance_mm,
+                                    "ts": ts
+                                })
+                            except Exception as e:
+                                self.logger.error("Error in calibration_complete callback: %s", e, exc_info=True)
+                
                 # Handle distance messages
-                if is_distance or "distance" in msg.topic:
+                elif is_distance or "distance" in msg.topic:
                     self.logger.info("Distance event received cabin=%s from_mm=%s to_mm=%s ts=%s topic=%s", 
                                    cabin_id, from_mm, to_mm, ts, msg.topic)
                     self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
@@ -522,8 +600,50 @@ class PresenceService:
                 self.logger.debug("Ignoring message for unknown cabin: %s", cabin_id)
         else:
             # Single-cabin mode (backward compatible)
+            # Handle floor/reached events
+            if is_floor_reached:
+                distance_mm = payload.get("distance_mm")
+                floor_level_mm = payload.get("floor_level_mm")
+                self.logger.info("Floor reached event received distance_mm=%s floor_level_mm=%s ts=%s", 
+                               distance_mm, floor_level_mm, ts)
+                # Call registered callbacks (use device ID as cabin_id for single-cabin mode)
+                cabin_id = device if device else "cabina-01"
+                with self._callbacks_lock:
+                    for callback in self._floor_reached_callbacks:
+                        try:
+                            callback(cabin_id, {
+                                "distance_mm": distance_mm,
+                                "floor_level_mm": floor_level_mm,
+                                "ts": ts
+                            })
+                        except Exception as e:
+                            self.logger.error("Error in floor_reached callback: %s", e, exc_info=True)
+            
+            # Handle calibration/complete events
+            elif is_calibration_complete:
+                floor_level_mm = payload.get("floor_level_mm")
+                calibration_rounds = payload.get("calibration_rounds")
+                min_distance_mm = payload.get("min_distance_mm")
+                max_distance_mm = payload.get("max_distance_mm")
+                self.logger.info("Calibration complete event received floor_level_mm=%s rounds=%s ts=%s", 
+                               floor_level_mm, calibration_rounds, ts)
+                # Call registered callbacks
+                cabin_id = device if device else "cabina-01"
+                with self._callbacks_lock:
+                    for callback in self._calibration_complete_callbacks:
+                        try:
+                            callback(cabin_id, {
+                                "floor_level_mm": floor_level_mm,
+                                "calibration_rounds": calibration_rounds,
+                                "min_distance_mm": min_distance_mm,
+                                "max_distance_mm": max_distance_mm,
+                                "ts": ts
+                            })
+                        except Exception as e:
+                            self.logger.error("Error in calibration_complete callback: %s", e, exc_info=True)
+            
             # Handle distance messages
-            if is_distance or "distance" in msg.topic:
+            elif is_distance or "distance" in msg.topic:
                 self.logger.info("Distance event received from_mm=%s to_mm=%s ts=%s topic=%s", 
                                from_mm, to_mm, ts, msg.topic)
                 self._update_distance(from_mm, to_mm, ts)

@@ -14,6 +14,10 @@ static bool s_connected = false;
 static char *s_will_topic = NULL;
 static char *s_will_payload = NULL;
 
+// Message callback function type
+typedef void (*mqtt_message_callback_t)(const char *topic, const char *data, int data_len);
+static mqtt_message_callback_t s_message_callback = NULL;
+
 static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data) {
     esp_mqtt_event_handle_t event = (esp_mqtt_event_handle_t)event_data;
@@ -42,10 +46,23 @@ static void mqtt_event_handler(void *arg, esp_event_base_t event_base,
             break;
 
         case MQTT_EVENT_DATA: {
-            ESP_LOGI(TAG, "MQTT data received, topic=%.*s, data=%.*s",
-                     event->topic_len, event->topic,
-                     event->data_len, event->data);
-            // TODO: Add callback mechanism for received messages if needed
+            // Extract topic and data as null-terminated strings
+            char topic[256] = {0};
+            char data[512] = {0};
+            int topic_len = event->topic_len < sizeof(topic) - 1 ? event->topic_len : sizeof(topic) - 1;
+            int data_len = event->data_len < sizeof(data) - 1 ? event->data_len : sizeof(data) - 1;
+            
+            memcpy(topic, event->topic, topic_len);
+            topic[topic_len] = '\0';
+            memcpy(data, event->data, data_len);
+            data[data_len] = '\0';
+            
+            ESP_LOGI(TAG, "MQTT data received, topic=%s, data=%.*s", topic, data_len, data);
+            
+            // Call registered callback if available
+            if (s_message_callback) {
+                s_message_callback(topic, data, data_len);
+            }
             break;
         }
 
@@ -210,5 +227,9 @@ esp_err_t mqtt_client_get_topic(const char *subtopic, char *topic_buf, size_t bu
     }
 
     return ESP_OK;
+}
+
+void mqtt_client_set_message_callback(mqtt_message_callback_t callback) {
+    s_message_callback = callback;
 }
 
