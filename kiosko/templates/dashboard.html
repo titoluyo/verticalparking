@@ -31,16 +31,30 @@
 </section>
 
 <script>
+// Test log to verify script is loaded
+console.log('=== DASHBOARD SCRIPT LOADED ===');
+console.log('[DASHBOARD] Script starting...');
 (function() {
-  const cabinsGrid = document.getElementById('cabins-grid');
-  const loading = document.getElementById('loading');
-  const error = document.getElementById('error');
-  const loadingIndicator = document.getElementById('loading-indicator');
-  const btnRefresh = document.getElementById('btn-refresh');
-  const lastUpdate = document.getElementById('last-update');
-  
-  let refreshInterval = null;
-  let isInitialLoad = true;
+  console.log('[DASHBOARD] IIFE executing...');
+  try {
+    const cabinsGrid = document.getElementById('cabins-grid');
+    const loading = document.getElementById('loading');
+    const error = document.getElementById('error');
+    const loadingIndicator = document.getElementById('loading-indicator');
+    const btnRefresh = document.getElementById('btn-refresh');
+    const lastUpdate = document.getElementById('last-update');
+    
+    console.log('[DASHBOARD] Elements found:', {
+      cabinsGrid: !!cabinsGrid,
+      loading: !!loading,
+      error: !!error,
+      loadingIndicator: !!loadingIndicator,
+      btnRefresh: !!btnRefresh,
+      lastUpdate: !!lastUpdate
+    });
+    
+    let refreshInterval = null;
+    let isInitialLoad = true;
   
   function formatTimestamp(timestamp) {
     if (!timestamp) return 'N/A';
@@ -197,6 +211,7 @@
   }
   
   function loadDashboard() {
+    console.log('[DASHBOARD] loadDashboard() called, isInitialLoad:', isInitialLoad);
     // On initial load, show full loading screen
     if (isInitialLoad) {
       loading.style.display = 'block';
@@ -209,6 +224,7 @@
       error.style.display = 'none';
     }
     
+    console.log('[DASHBOARD] Fetching /api/dashboard/cabins...');
     fetch('/api/dashboard/cabins', { 
       cache: 'no-cache',
       headers: {
@@ -232,10 +248,11 @@
         }
         
         // Debug: Log data received
+        console.log('[DASHBOARD] Data received from API:', data);
         if (data.cabins && data.cabins.length > 0) {
           const cabin01 = data.cabins.find(c => c.id === 'CABINA-01');
           if (cabin01) {
-            console.log('Dashboard data for CABINA-01:', {
+            console.log('[DASHBOARD] CABINA-01 data:', {
               estado: cabin01.estado,
               sensor_state: cabin01.sensor_state,
               sensor_data_available: cabin01.sensor_data_available,
@@ -259,7 +276,7 @@
         }
       })
       .catch(err => {
-        console.error('Error loading dashboard:', err);
+        console.error('[DASHBOARD] Error loading dashboard:', err);
         // Don't break polling on error - just log it
         if (isInitialLoad) {
           loading.style.display = 'none';
@@ -334,9 +351,13 @@
     }
   });
   
-  // Log connection status
-  console.log('Dashboard polling started - refreshing every 5 seconds');
+    // Log connection status
+    console.log('[DASHBOARD] Polling started - refreshing every 5 seconds');
+  } catch (err) {
+    console.error('[DASHBOARD] Error in dashboard script:', err);
+  }
 })();
+console.log('[DASHBOARD] Script loaded');
 </script>
 </section>
 </div>
