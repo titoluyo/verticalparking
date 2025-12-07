@@ -101,6 +101,7 @@ class PresenceService:
         self._status = "initializing"
         self._status_detail: Optional[str] = None
         self._connected = False
+        self._connection_time: Optional[float] = None  # Timestamp when MQTT connected
         self._thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         # SSE subscribers: list of queues for each connected client
@@ -498,8 +499,10 @@ class PresenceService:
         success = rc == 0
         self._connected = success
         if success:
+            # Record connection time to prevent auto-switch from stale retained messages
+            self._connection_time = time.time()
             self._set_status("online", None)
-            self.logger.info("Presence MQTT connected rc=%s", rc)
+            self.logger.info("Presence MQTT connected rc=%s, connection_time=%s", rc, self._connection_time)
             
             if self._multi_cabin_mode:
                 # Subscribe to all cabin topics
@@ -737,28 +740,40 @@ class PresenceService:
             
             # Auto-switch active cabin if vehicle is detected entering a non-active cabin
             # This allows detection in any cabin, not just the active one
-            # IMPORTANT: Only auto-switch if we have recent data (within last 5 seconds)
+            # IMPORTANT: Prevent auto-switch during initial connection period (first 10 seconds)
             # This prevents auto-switching on startup from stale MQTT retained messages
             is_active = (cabin_id == self._active_cabin)
             prev_entry = self._state[cabin_id].get("previous", (False, False))[0] if cabin_id in self._state else False
             
+            # Check if we're still in the initial connection period (grace period)
+            # During this period, ignore auto-switch to prevent retained MQTT messages from changing active cabin
+            current_time = time.time()
+            in_grace_period = False
+            time_since_connection = 0
+            if self._connection_time:
+                time_since_connection = current_time - self._connection_time
+                in_grace_period = time_since_connection < 10  # 10 second grace period after connection
+            
             # Check if this is a recent sensor reading (not a stale retained message)
             sensor_ts = ts
-            current_time = time.time()
             is_recent = (current_time - sensor_ts) < 5 if sensor_ts else False
             
-            if not is_active and key == "entry" and present and not prev_entry and is_recent:
+            if not is_active and key == "entry" and present and not prev_entry and is_recent and not in_grace_period:
                 # Vehicle just started entering a non-active cabin - switch to that cabin
-                # Only switch if this is a recent reading (not a stale retained message)
+                # Only switch if this is a recent reading and we're past the grace period
                 old_active = self._active_cabin
                 self._active_cabin = cabin_id
-                self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s (recent data: ts=%s)", 
-                               cabin_id, old_active, cabin_id, sensor_ts)
+                self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s (recent data: ts=%s, time_since_connection=%.1fs)", 
+                               cabin_id, old_active, cabin_id, sensor_ts, time_since_connection if self._connection_time else 0)
                 should_notify_switch = True
-            elif not is_active and key == "entry" and present and not prev_entry and not is_recent:
-                # Stale data - ignore to prevent auto-switch on startup
-                self.logger.debug("Ignoring stale sensor data for auto-switch: cabin=%s entry=%s ts=%s (age=%.1fs)", 
-                                cabin_id, present, sensor_ts, current_time - sensor_ts if sensor_ts else 0)
+            elif not is_active and key == "entry" and present and not prev_entry:
+                # Prevent auto-switch if in grace period or stale data
+                if in_grace_period:
+                    self.logger.debug("Ignoring sensor data for auto-switch (grace period): cabin=%s entry=%s (time_since_connection=%.1fs)", 
+                                    cabin_id, present, time_since_connection if self._connection_time else 0)
+                elif not is_recent:
+                    self.logger.debug("Ignoring stale sensor data for auto-switch: cabin=%s entry=%s ts=%s (age=%.1fs)", 
+                                    cabin_id, present, sensor_ts, current_time - sensor_ts if sensor_ts else 0)
             
             self._state[cabin_id][key] = {"present": present, "ts": ts}
             # Update previous combined state for this cabin
