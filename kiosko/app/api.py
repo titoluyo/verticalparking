@@ -1165,42 +1165,20 @@ def dashboard_cabins():
                                     except Exception:
                                         pass
                                 
-                                # Use the smallest minimum from cache or database
-                                if current_min is not None and db_min is not None:
-                                    best_min = min(current_min, db_min)
+                                # ALWAYS use database value as source of truth - NEVER auto-update
+                                # Floor level must be set manually via API or calibration only
+                                # This prevents floor level from changing when cabin moves
+                                
+                                # Database value always wins - never use smaller values from cache
+                                if db_min is not None:
+                                    best_min = db_min  # Database is authoritative
                                 elif current_min is not None:
-                                    best_min = current_min
-                                elif db_min is not None:
-                                    best_min = db_min
+                                    best_min = current_min  # Use cache only if DB has no value
                                 else:
                                     best_min = None
                                 
-                                # Update minimum if this distance is smaller (closer to sensor = lower number)
-                                if best_min is None or distance_mm < best_min:
-                                    distance_data["min_mm"] = distance_mm
-                                    # Update database with new minimum distance ONLY if not already set manually
-                                    # This prevents overwriting manually configured floor levels
-                                    if db_id:
-                                        try:
-                                            cabin_info = get_cabin(db_id)
-                                            current_floor = None
-                                            if cabin_info:
-                                                # sqlite3.Row access
-                                                try:
-                                                    current_floor = cabin_info["minimum_distance"]
-                                                except (KeyError, IndexError, TypeError):
-                                                    pass
-                                            
-                                            # Only update if floor level is not already set (NULL)
-                                            if current_floor is None:
-                                                update_cabin_minimum_distance(db_id, distance_mm)
-                                                logger.debug(f"Auto-updated minimum_distance for {db_id} to {distance_mm}mm (was NULL)")
-                                            else:
-                                                logger.debug(f"Skipping auto-update of minimum_distance for {db_id} - already set to {current_floor}mm (manual value preserved)")
-                                        except Exception as e:
-                                            logger.debug("Could not update minimum distance in DB: %s", e)
-                                else:
-                                    distance_data["min_mm"] = best_min
+                                # NEVER auto-update minimum_distance - only use stored value
+                                distance_data["min_mm"] = best_min
                                 _distance_cache[cabin_mqtt] = distance_data
                             messages_received[f"{cabin_mqtt}/distance"] = True
                     elif sensor == "ir1" or "entry" in msg.topic:
