@@ -197,6 +197,34 @@ def has_active_ticket(cabina_id: str) -> bool:
     return has_ticket
 
 
+def has_active_ticket_direct(cabina_id: str) -> bool:
+    """Check if a cabin has an active ticket (direct DB access, no Flask context).
+    
+    This version can be used from MQTT callbacks that run in separate threads.
+    
+    Args:
+        cabina_id: Cabin ID to check
+        
+    Returns:
+        True if cabin has an active ticket, False otherwise
+    """
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM tickets WHERE cabina_id = ? AND status = 'active' LIMIT 1",
+            (cabina_id,)
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return len(rows) > 0
+    except Exception:
+        # If DB access fails, assume no ticket (safer for motor control)
+        return False
+
+
 # Cabin management functions
 def get_cabin(cabina_id: str) -> Optional[sqlite3.Row]:
     """Get cabin by ID.

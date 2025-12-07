@@ -180,11 +180,11 @@ def guardar_vehiculo():
                 def floor_callback(cabin_id: str, event_data: dict):
                     """Callback that accepts ANY free cabin reaching floor."""
                     try:
-                        # Check if this cabin is free (no active ticket)
+                        # Check if this cabin is free (no active ticket) - use direct DB access
                         cabin_id_db = cabin_id.replace("cabina-", "CABINA-").upper() if not cabin_id.startswith("CABINA-") else cabin_id
-                        from .database import has_active_ticket
+                        from .database import has_active_ticket_direct
                         
-                        if has_active_ticket(cabin_id_db):
+                        if has_active_ticket_direct(cabin_id_db):
                             logger.debug(f"Floor event ignored for {cabin_id} - has active ticket")
                             return
                         
