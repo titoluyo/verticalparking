@@ -42,14 +42,30 @@ def create_app() -> Flask:
         presence_service = presence_service_from_env(app.logger)
         
         # Register callback for calibration_complete events to update database
+        # Only updates if floor level is not already set (to avoid overwriting manual values)
         def on_calibration_complete(cabin_id: str, event_data: dict):
-            """Handle calibration complete events by updating database."""
+            """Handle calibration complete events by updating database (only if not already set)."""
             floor_level_mm = event_data.get("floor_level_mm")
             if floor_level_mm:
                 # Convert cabin_id to DB format (cabina-01 -> CABINA-01)
                 cabin_id_db = cabin_id.replace("cabina-", "CABINA-").upper()
-                update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
-                app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm (from calibration)")
+                
+                # Check if floor level is already set - don't overwrite manual values
+                from .database import get_cabin
+                cabin_info = get_cabin(cabin_id_db)
+                if cabin_info:
+                    # sqlite3.Row access
+                    try:
+                        current_floor = cabin_info["minimum_distance"]
+                    except (KeyError, IndexError, TypeError):
+                        current_floor = None
+                    
+                    if current_floor is None:
+                        # Only update if not set (NULL)
+                        update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
+                        app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm (from calibration)")
+                    else:
+                        app.logger.debug(f"Skipping floor level update for {cabin_id_db} - already set to {current_floor}mm (manual value preserved)")
         
         presence_service.register_calibration_complete_callback(on_calibration_complete)
         

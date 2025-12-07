@@ -1174,10 +1174,25 @@ def dashboard_cabins():
                                 # Update minimum if this distance is smaller (closer to sensor = lower number)
                                 if best_min is None or distance_mm < best_min:
                                     distance_data["min_mm"] = distance_mm
-                                    # Update database with new minimum distance
+                                    # Update database with new minimum distance ONLY if not already set manually
+                                    # This prevents overwriting manually configured floor levels
                                     if db_id:
                                         try:
-                                            update_cabin_minimum_distance(db_id, distance_mm)
+                                            cabin_info = get_cabin(db_id)
+                                            current_floor = None
+                                            if cabin_info:
+                                                # sqlite3.Row access
+                                                try:
+                                                    current_floor = cabin_info["minimum_distance"]
+                                                except (KeyError, IndexError, TypeError):
+                                                    pass
+                                            
+                                            # Only update if floor level is not already set (NULL)
+                                            if current_floor is None:
+                                                update_cabin_minimum_distance(db_id, distance_mm)
+                                                current_app.logger.debug(f"Auto-updated minimum_distance for {db_id} to {distance_mm}mm (was NULL)")
+                                            else:
+                                                current_app.logger.debug(f"Skipping auto-update of minimum_distance for {db_id} - already set to {current_floor}mm (manual value preserved)")
                                         except Exception as e:
                                             current_app.logger.debug("Could not update minimum distance in DB: %s", e)
                                 else:

@@ -146,12 +146,28 @@ def guardar_vehiculo():
                     current_app.logger.info(f"Cabin {cabin_id_presence} reached floor - activated as active cabin")
                     
                     # Update database minimum_distance if provided in event
+                    # Only update if not already set (to avoid overwriting manual values)
                     floor_level_mm = event_data.get("floor_level_mm")
                     if floor_level_mm:
                         # Convert to DB format
                         cabin_id_db = cabin_id_presence.replace("cabina-", "CABINA-").upper()
-                        update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
-                        current_app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm")
+                        
+                        # Check if floor level is already set - don't overwrite manual values
+                        from .database import get_cabin
+                        cabin_info = get_cabin(cabin_id_db)
+                        if cabin_info:
+                            # sqlite3.Row access
+                            try:
+                                current_floor = cabin_info["minimum_distance"]
+                            except (KeyError, IndexError, TypeError):
+                                current_floor = None
+                            
+                            if current_floor is None:
+                                # Only update if not set (NULL)
+                                update_cabin_minimum_distance(cabin_id_db, floor_level_mm)
+                                current_app.logger.info(f"Updated minimum_distance for {cabin_id_db} to {floor_level_mm}mm (from floor event)")
+                            else:
+                                current_app.logger.debug(f"Skipping floor level update for {cabin_id_db} - already set to {current_floor}mm (manual value preserved)")
                 
                 # Register floor reached callback (only for this specific cabin)
                 # Note: This callback will be called for any floor event, but we check cabin_id
