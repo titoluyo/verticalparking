@@ -330,6 +330,31 @@ class PresenceService:
                 full_present = bool(cabin_state["full"]["present"])
                 prev_entry, prev_full = cabin_state["previous"]
                 
+                # Check if this cabin has an active ticket (vehicle already stored)
+                # If it does, we should ignore sensor state and show "free" to allow next vehicle
+                # Convert to DB format for ticket check
+                cabin_id_db = target_cabin.replace("cabina-", "CABINA-").upper()
+                has_active_ticket = False
+                try:
+                    from .database import has_active_ticket_direct
+                    has_active_ticket = has_active_ticket_direct(cabin_id_db)
+                    if has_active_ticket:
+                        self.logger.debug(f"Cabin {target_cabin} has active ticket - ignoring sensor state for vehicle entrance detection")
+                except Exception as e:
+                    self.logger.warning(f"Error checking active ticket for {target_cabin}: {e}")
+                
+                # If cabin has active ticket, ignore sensor state and treat as free
+                # This allows the system to detect the next vehicle entering, even if sensors
+                # still show the previous vehicle inside (which is expected - vehicle is stored inside)
+                # IMPORTANT: This only applies if we're checking the active cabin for vehicle entrance detection
+                # If the active cabin has a ticket, it means a vehicle was just stored there, so we should
+                # ignore its sensors and show "free" to allow detection of the next vehicle entering
+                if has_active_ticket:
+                    # Reset sensor state to free to allow detection of next vehicle
+                    entry_present = False
+                    full_present = False
+                    self.logger.info(f"Cabin {target_cabin} (active) has active ticket - resetting sensor state to free for next vehicle detection (sensors show entry={cabin_state['entry']['present']}, full={cabin_state['full']['present']})")
+                
                 # Check if we have recent sensor data (within last 10 seconds)
                 # If sensors show "entered" but data is stale, treat as unknown/free
                 # This prevents showing "entered" on startup from stale MQTT retained messages
@@ -346,7 +371,8 @@ class PresenceService:
                 
                 # If sensors show "entered" but we don't have recent data, treat as free
                 # This prevents showing "entered" on startup from stale MQTT retained messages
-                if entry_present and full_present and not has_recent_data:
+                # BUT: Only apply this if cabin doesn't have active ticket (if it has ticket, we already reset above)
+                if not has_active_ticket and entry_present and full_present and not has_recent_data:
                     # Stale data showing entered - reset to free
                     entry_present = False
                     full_present = False
