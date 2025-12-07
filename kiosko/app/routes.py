@@ -59,12 +59,12 @@ def guardar_vehiculo():
                 # Cabin has active ticket, find next free cabin in circular order
                 current_app.logger.info(f"Active cabin {active_cabin} is busy with active ticket, finding next free cabin in circular order")
                 free_cabin_id = find_next_free_cabin_circular(active_cabin, logger=current_app.logger)
-            if not free_cabin_id:
+                if not free_cabin_id:
                     current_app.logger.error(f"No free cabins found when searching from {active_cabin}")
-                flash("No hay cabinas disponibles en este momento", "error")
-                return render_template("guardar.html", error="No hay cabinas disponibles")
-            active_cabin = free_cabin_id
-            current_app.logger.info(f"Using free cabin: {active_cabin}")
+                    flash("No hay cabinas disponibles en este momento", "error")
+                    return render_template("guardar.html", error="No hay cabinas disponibles")
+                active_cabin = free_cabin_id
+                current_app.logger.info(f"Using free cabin: {active_cabin}")
             else:
                 # Cabin is marked busy but has no active ticket - treat as free
                 current_app.logger.info(f"Active cabin {active_cabin} is marked busy but has no active ticket, treating as free")
