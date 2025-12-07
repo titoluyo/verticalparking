@@ -681,6 +681,7 @@ class PresenceService:
     
     def _update_state_multi(self, cabin_id: str, key: str, present: bool, ts: float) -> None:
         """Update state for multi-cabin mode."""
+        should_notify_switch = False
         with self._lock:
             if cabin_id not in self._state:
                 self._state[cabin_id] = {
@@ -690,19 +691,48 @@ class PresenceService:
                     "distance": {"from_mm": None, "to_mm": None, "ts": None},
                 }
             
+            # Auto-switch active cabin if vehicle is detected entering a non-active cabin
+            # This allows detection in any cabin, not just the active one
+            is_active = (cabin_id == self._active_cabin)
+            if not is_active and key == "entry" and present:
+                # Check if previous state was empty (vehicle just started entering)
+                prev_entry = self._state[cabin_id].get("previous", (False, False))[0]
+                if not prev_entry:
+                    # Vehicle detected entering a non-active cabin - switch to that cabin
+                    old_active = self._active_cabin
+                    self._active_cabin = cabin_id
+                    self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s", 
+                                   cabin_id, old_active, cabin_id)
+                    should_notify_switch = True
+            
+            # Auto-switch active cabin if vehicle is detected entering a non-active cabin
+            # This allows detection in any cabin, not just the active one
+            is_active = (cabin_id == self._active_cabin)
+            prev_entry = self._state[cabin_id].get("previous", (False, False))[0] if cabin_id in self._state else False
+            
+            if not is_active and key == "entry" and present and not prev_entry:
+                # Vehicle just started entering a non-active cabin - switch to that cabin
+                old_active = self._active_cabin
+                self._active_cabin = cabin_id
+                self.logger.info("Vehicle detected entering non-active cabin %s, auto-switching active cabin: %s -> %s", 
+                               cabin_id, old_active, cabin_id)
+            
             self._state[cabin_id][key] = {"present": present, "ts": ts}
             # Update previous combined state for this cabin
             entry_present = bool(self._state[cabin_id]["entry"]["present"])
             full_present = bool(self._state[cabin_id]["full"]["present"])
             self._state[cabin_id]["previous"] = (entry_present, full_present)
+        
         # Log state changes for active cabin or any significant changes
-        entry_state = bool(self._state[cabin_id]["entry"]["present"])
-        full_state = bool(self._state[cabin_id]["full"]["present"])
-        if present or cabin_id == self._active_cabin:
+        is_active_now = (cabin_id == self._active_cabin)
+        entry_state = bool(self._state[cabin_id]["entry"]["present"]) if cabin_id in self._state else False
+        full_state = bool(self._state[cabin_id]["full"]["present"]) if cabin_id in self._state else False
+        if present or is_active_now:
             self.logger.info("Presence update: cabin=%s sensor=%s present=%s (entry=%s full=%s) active=%s", 
-                           cabin_id, key, present, entry_state, full_state, cabin_id == self._active_cabin)
+                           cabin_id, key, present, entry_state, full_state, is_active_now)
         else:
             self.logger.debug("Presence update cabin=%s %s present=%s ts=%s", cabin_id, key, present, ts)
+        
         # Notify all subscribers of state change
         self._notify_subscribers()
     

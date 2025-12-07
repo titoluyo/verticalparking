@@ -1210,23 +1210,58 @@ def dashboard_cabins():
                 elif active_cabin_db.startswith("cabina-"):
                     active_cabin_mqtt = active_cabin_db.lower()
             
-            # Populate distance cache from presence service state (it maintains distance for all cabins)
+            # Populate sensor data from presence service state (it maintains state for all cabins continuously)
+            # This is the PRIMARY source - more reliable than temporary MQTT connection
+            presence_data_available = False
             try:
                 if hasattr(presence_service, '_state') and hasattr(presence_service, '_lock'):
                     with presence_service._lock:
                         for cabin_id, cabin_state in presence_service._state.items():
-                            if isinstance(cabin_state, dict) and "distance" in cabin_state:
-                                distance_data = cabin_state["distance"]
+                            if isinstance(cabin_state, dict):
+                                # Get IR sensor data
+                                entry_data = cabin_state.get("entry", {})
+                                full_data = cabin_state.get("full", {})
+                                distance_data = cabin_state.get("distance", {})
+                                
+                                # Update sensor_results with data from PresenceService
+                                if cabin_id not in sensor_results:
+                                    sensor_results[cabin_id] = {
+                                        "entry": {"present": False, "ts": None},
+                                        "full": {"present": False, "ts": None},
+                                        "distance": {"mm": None, "ts": None},
+                                    }
+                                
+                                # Update entry sensor if available
+                                if entry_data.get("present") is not None or entry_data.get("ts"):
+                                    sensor_results[cabin_id]["entry"] = {
+                                        "present": bool(entry_data.get("present", False)),
+                                        "ts": entry_data.get("ts")
+                                    }
+                                    presence_data_available = True
+                                
+                                # Update full sensor if available
+                                if full_data.get("present") is not None or full_data.get("ts"):
+                                    sensor_results[cabin_id]["full"] = {
+                                        "present": bool(full_data.get("present", False)),
+                                        "ts": full_data.get("ts")
+                                    }
+                                    presence_data_available = True
+                                
+                                # Update distance if available
                                 to_mm = distance_data.get("to_mm")
                                 if to_mm is not None:
-                                    # Update cache with distance from presence service
+                                    sensor_results[cabin_id]["distance"] = {
+                                        "mm": int(to_mm),
+                                        "ts": distance_data.get("ts")
+                                    }
+                                    # Also update distance cache
                                     with _distance_cache_lock:
                                         _distance_cache[cabin_id] = {
                                             "mm": int(to_mm),
                                             "ts": distance_data.get("ts")
                                         }
             except Exception as e:
-                current_app.logger.debug("Could not populate distance cache from presence service: %s", e)
+                logger.debug("Could not populate sensor data from presence service: %s", e)
         
         # Get sensor data via MQTT (with timeout if MQTT unavailable)
         client = mqtt.Client(client_id=f"kiosko-dashboard-{int(time.time())}", clean_session=True)
@@ -1332,7 +1367,8 @@ def dashboard_cabins():
                 distance_sensor["min_mm"] = min_distance_from_db
             
             # Determine overall state
-            if sensor_data_available:
+            # Use PresenceService data if available (more reliable), otherwise fall back to MQTT temp connection
+            if presence_data_available or sensor_data_available:
                 if full_sensor.get("present", False):
                     sensor_state = "occupied"
                     sensor_message = "Vehículo detectado"
