@@ -522,15 +522,20 @@ class PresenceService:
         from_mm = payload.get("from_mm")
         to_mm = payload.get("to_mm")
         is_distance = from_mm is not None or to_mm is not None
-        
+
         # Check if this is a floor/reached event
         is_floor_reached = "floor/reached" in msg.topic or payload.get("floor_level_mm") is not None
         
         # Check if this is a calibration/complete event
         is_calibration_complete = "calibration/complete" in msg.topic or payload.get("calibration_rounds") is not None
 
-        self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s floor=%s calib=%s", 
-                         msg.topic, device, sensor, present, is_distance, is_floor_reached, is_calibration_complete)
+        # Log all MQTT messages at debug level, but log IR sensor messages at info level
+        if sensor in ("ir1", "ir2") or "entry" in msg.topic or "full" in msg.topic:
+            self.logger.info("MQTT IR message: topic=%s device=%s sensor=%s present=%s", 
+                           msg.topic, device, sensor, present)
+        else:
+            self.logger.debug("MQTT message received topic=%s device=%s sensor=%s present=%s distance=%s floor=%s calib=%s", 
+                             msg.topic, device, sensor, present, is_distance, is_floor_reached, is_calibration_complete)
 
         if self._multi_cabin_mode:
             # Extract cabin ID from device name or topic
@@ -593,8 +598,12 @@ class PresenceService:
                     self._update_distance_multi(cabin_id, from_mm, to_mm, ts)
                 # Determine sensor type for presence messages
                 elif sensor == "ir1" or "entry" in msg.topic:
+                    self.logger.info("IR sensor event: cabin=%s sensor=entry present=%s topic=%s", 
+                                   cabin_id, present, msg.topic)
                     self._update_state_multi(cabin_id, "entry", present, ts)
                 elif sensor == "ir2" or "full" in msg.topic:
+                    self.logger.info("IR sensor event: cabin=%s sensor=full present=%s topic=%s", 
+                                   cabin_id, present, msg.topic)
                     self._update_state_multi(cabin_id, "full", present, ts)
             else:
                 self.logger.debug("Ignoring message for unknown cabin: %s", cabin_id)
@@ -686,7 +695,14 @@ class PresenceService:
             entry_present = bool(self._state[cabin_id]["entry"]["present"])
             full_present = bool(self._state[cabin_id]["full"]["present"])
             self._state[cabin_id]["previous"] = (entry_present, full_present)
-        self.logger.debug("Presence update cabin=%s %s present=%s ts=%s", cabin_id, key, present, ts)
+        # Log state changes for active cabin or any significant changes
+        entry_state = bool(self._state[cabin_id]["entry"]["present"])
+        full_state = bool(self._state[cabin_id]["full"]["present"])
+        if present or cabin_id == self._active_cabin:
+            self.logger.info("Presence update: cabin=%s sensor=%s present=%s (entry=%s full=%s) active=%s", 
+                           cabin_id, key, present, entry_state, full_state, cabin_id == self._active_cabin)
+        else:
+            self.logger.debug("Presence update cabin=%s %s present=%s ts=%s", cabin_id, key, present, ts)
         # Notify all subscribers of state change
         self._notify_subscribers()
     

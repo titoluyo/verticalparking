@@ -6,6 +6,7 @@
   <div class="dashboard-header">
     <h1>Dashboard del Sistema</h1>
     <p class="muted">Estado de todas las cabinas y sensores</p>
+    <p id="active-cabin-info" class="muted" style="font-weight: bold; color: var(--primary);"></p>
     <div class="dashboard-controls">
       <button id="btn-refresh" class="btn btn-secondary">Actualizar</button>
       <div id="loading-indicator" class="loading-indicator" style="display: none;">
@@ -207,6 +208,17 @@
         }
         renderCabins(data);
         lastUpdate.textContent = `Última actualización: ${formatTimestamp(data.timestamp)}`;
+        
+        // Update active cabin info
+        const activeCabinInfo = document.getElementById('active-cabin-info');
+        if (data.active_cabin) {
+          const cabinNum = extractCabinNumber(data.active_cabin.replace('cabina-', 'CABINA-').toUpperCase());
+          activeCabinInfo.textContent = `📡 Monitoreando sensores: Cabina ${cabinNum}`;
+          activeCabinInfo.style.display = 'block';
+        } else {
+          activeCabinInfo.textContent = '';
+          activeCabinInfo.style.display = 'none';
+        }
       })
       .catch(err => {
         console.error('Error loading dashboard:', err);
