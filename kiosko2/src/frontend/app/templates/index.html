@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Inicio - Parking Vertical{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Bienvenido al Parking Vertical</h1>
+    
+    <div class="action-buttons">
+        <a href="{{ url_for('routes.guardar_vehiculo') }}" class="btn btn-primary btn-large">
+            <span class="icon">🚗</span>
+            <span class="text">Guardar Vehículo</span>
+        </a>
+        
+        <a href="{{ url_for('routes.recoger_vehiculo') }}" class="btn btn-secondary btn-large">
+            <span class="icon">🎫</span>
+            <span class="text">Recoger Vehículo</span>
+        </a>
+    </div>
+    
+    <div class="info-section">
+        <h2>Instrucciones</h2>
+        <ol>
+            <li><strong>Guardar:</strong> Coloque su vehículo en la plataforma y presione "Guardar Vehículo"</li>
+            <li><strong>Ticket:</strong> Guarde el ticket impreso con el código QR</li>
+            <li><strong>Recoger:</strong> Escanee o ingrese el código del ticket para recuperar su vehículo</li>
+        </ol>
+    </div>
+</div>
+{% endblock %}

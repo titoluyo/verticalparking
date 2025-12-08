@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}Guardar Vehículo - Parking Vertical{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Guardar Vehículo</h1>
+    
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    <div class="instructions">
+        <p>Por favor asegúrese de que su vehículo esté correctamente posicionado en la plataforma.</p>
+    </div>
+    
+    <form method="POST" action="{{ url_for('routes.guardar_vehiculo') }}">
+        <div class="form-group">
+            <button type="submit" class="btn btn-primary btn-large">
+                <span class="icon">✅</span>
+                Confirmar y Guardar
+            </button>
+        </div>
+    </form>
+    
+    <div class="back-link">
+        <a href="{{ url_for('routes.index') }}" class="btn btn-secondary">← Volver al Inicio</a>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Recoger Vehículo - Parking Vertical{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1>Recoger Vehículo</h1>
+    
+    {% if error %}
+    <div class="alert alert-error">
+        {{ error }}
+    </div>
+    {% endif %}
+    
+    {% if success %}
+    <div class="alert alert-success">
+        <h2>🚗 {{ message }}</h2>
+        <p>Cabina: {{ cabin_id }}</p>
+        <p>Por favor espere mientras su vehículo llega a la plataforma.</p>
+    </div>
+    {% else %}
+    <div class="instructions">
+        <p>Ingrese el código de su ticket o escanee el código QR.</p>
+    </div>
+    
+    <form method="POST" action="{{ url_for('routes.recoger_vehiculo') }}">
+        <div class="form-group">
+            <label for="token">Código del Ticket:</label>
+            <input type="text" 
+                   id="token" 
+                   name="token" 
+                   placeholder="Ingrese el código del ticket"
+                   class="input-large"
+                   autofocus>
+        </div>
+        
+        <div class="form-group">
+            <button type="submit" class="btn btn-primary btn-large">
+                <span class="icon">🔍</span>
+                Buscar Vehículo
+            </button>
+        </div>
+    </form>
+    {% endif %}
+    
+    <div class="back-link">
+        <a href="{{ url_for('routes.index') }}" class="btn btn-secondary">← Volver al Inicio</a>
+    </div>
+</div>
+{% endblock %}
