@@ -134,22 +134,25 @@ class TicketService:
         """Complete a ticket (vehicle retrieved).
         
         Args:
-            token: Ticket token
+            token: Ticket token (may include PARKING: prefix)
             
         Returns:
             True if successful
         """
-        ticket = self.get_ticket_by_token(token)
+        # Normalize token by stripping PARKING: prefix if present
+        normalized_token = token[8:] if token.startswith("PARKING:") else token
+        
+        ticket = self.get_ticket_by_token(normalized_token)
         if not ticket:
             return False
         
-        # Mark ticket as completed
-        success = self._ticket_repo.complete_ticket(token)
+        # Mark ticket as completed using the normalized token (without prefix)
+        success = self._ticket_repo.complete_ticket(normalized_token)
         
         if success:
             # Mark cabin as free
             self._cabin_repo.update_status(ticket.cabina_id, CabinStatus.FREE)
-            self._logger.info(f"Completed ticket {token[:8]} for cabin {ticket.cabina_id}")
+            self._logger.info(f"Completed ticket {normalized_token[:8]} for cabin {ticket.cabina_id}")
         
         return success
     

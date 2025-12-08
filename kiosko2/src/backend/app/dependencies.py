@@ -2,7 +2,6 @@
 
 import logging
 from typing import Optional, Generator
-from functools import lru_cache
 
 from fastapi import Depends, HTTPException, Header, status
 
@@ -25,7 +24,9 @@ def get_logger() -> logging.Logger:
 
 
 # Repositories
-@lru_cache()
+# Note: Do NOT use @lru_cache() with Depends() parameters.
+# BaseSettings objects are unhashable, causing TypeError at runtime.
+# FastAPI already caches dependencies per request, so caching is not needed here.
 def get_ticket_repository(
     settings: Settings = Depends(get_settings),
 ) -> ITicketRepository:
@@ -33,7 +34,6 @@ def get_ticket_repository(
     return SQLiteTicketRepository(settings.database_path)
 
 
-@lru_cache()
 def get_cabin_repository(
     settings: Settings = Depends(get_settings),
 ) -> ICabinRepository:

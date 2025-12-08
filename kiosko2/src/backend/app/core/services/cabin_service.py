@@ -73,6 +73,7 @@ class CabinService:
         
         Args:
             start_cabin_id: Cabin ID to start searching from. Search starts from the NEXT cabin.
+                           If None, searches all cabins starting from CABINA-01.
             
         Returns:
             Cabin ID of next free cabin, or None if no free cabins
@@ -83,16 +84,23 @@ class CabinService:
         
         cabin_list = [c.id for c in all_cabins]  # ["CABINA-01", "CABINA-02", ...]
         
-        # Determine starting index
-        start_idx = 0
-        if start_cabin_id:
-            db_id = self._normalize_to_db_id(start_cabin_id)
-            try:
-                start_idx = cabin_list.index(db_id)
-            except ValueError:
-                start_idx = 0
+        # If no start cabin provided, search all cabins starting from the first one
+        if not start_cabin_id:
+            for cabin_id in cabin_list:
+                if not self._ticket_repo.has_active_ticket(cabin_id):
+                    self._logger.info(f"Found free cabin: {cabin_id}")
+                    return cabin_id
+            self._logger.warning("No free cabins found")
+            return None
         
-        # Search circularly
+        # Determine starting index
+        db_id = self._normalize_to_db_id(start_cabin_id)
+        try:
+            start_idx = cabin_list.index(db_id)
+        except ValueError:
+            start_idx = 0
+        
+        # Search circularly starting from NEXT cabin after start_idx
         # First pass: from start_idx+1 to end
         for i in range(start_idx + 1, len(cabin_list)):
             cabin_id = cabin_list[i]
@@ -100,8 +108,8 @@ class CabinService:
                 self._logger.info(f"Found free cabin: {cabin_id}")
                 return cabin_id
         
-        # Second pass: from beginning to start_idx (wrap around)
-        for i in range(0, start_idx):
+        # Second pass: from beginning to start_idx (wrap around, inclusive of start_idx)
+        for i in range(0, start_idx + 1):
             cabin_id = cabin_list[i]
             if not self._ticket_repo.has_active_ticket(cabin_id):
                 self._logger.info(f"Found free cabin (wrapped): {cabin_id}")
