@@ -114,6 +114,33 @@ class TestCabinService:
         next_cabin = cabin_service.find_next_free_cabin_circular("CABINA-01")
         assert next_cabin is None
     
+    def test_find_next_free_cabin_no_start_id(self, cabin_service, ticket_repo):
+        """Test circular search without start_cabin_id returns first free cabin."""
+        # All cabins free - should return CABINA-01 (first in order)
+        next_cabin = cabin_service.find_next_free_cabin_circular()
+        assert next_cabin == "CABINA-01"
+        
+        # Same with explicit None
+        next_cabin = cabin_service.find_next_free_cabin_circular(None)
+        assert next_cabin == "CABINA-01"
+    
+    def test_find_next_free_cabin_no_start_id_only_first_free(self, cabin_service, ticket_repo):
+        """Test that CABINA-01 is found when it's the only free cabin and no start_id provided.
+        
+        Regression test for bug where CABINA-01 was skipped when start_cabin_id=None
+        because start_idx defaulted to 0 and the search started at index 1.
+        """
+        # Mark all cabins except CABINA-01 as having active tickets
+        for i in range(2, 7):
+            ticket_repo.create(f"token-{i}", f"CABINA-{i:02d}")
+        
+        # Should find CABINA-01 even with no start_cabin_id
+        next_cabin = cabin_service.find_next_free_cabin_circular()
+        assert next_cabin == "CABINA-01"
+        
+        next_cabin = cabin_service.find_next_free_cabin_circular(None)
+        assert next_cabin == "CABINA-01"
+    
     def test_get_next_cabin_circular(self, cabin_service):
         """Test getting next cabin in circular order."""
         assert cabin_service.get_next_cabin_circular("CABINA-01") == "CABINA-02"
