@@ -65,7 +65,7 @@ jobs:
     needs: [test]
     # Run deploy if: (tests passed OR deploy_only is true) AND on main branch AND not a PR
     # Using always() ensures this job runs even when 'test' job is skipped
-    if: |
+    if: >-
       always() &&
       (needs.test.result == 'success' || needs.test.result == 'skipped') &&
       github.ref == 'refs/heads/main' &&
