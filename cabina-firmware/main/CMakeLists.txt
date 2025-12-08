@@ -7,5 +7,6 @@ idf_component_register(SRCS "main.cpp"
                               "edge_detect.cpp"
                               "telemetry.cpp"
                               "calibration.cpp"
+                              "ota_update.cpp"
                        INCLUDE_DIRS "."
-                       REQUIRES driver esp_timer esp_wifi esp_netif esp_event nvs_flash freertos mqtt)
+                       REQUIRES driver esp_timer esp_wifi esp_netif esp_event nvs_flash freertos mqtt esp_https_ota app_update)

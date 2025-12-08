@@ -17,3 +17,10 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
 
 # Set esp-timer task stack size to 6KB
 CONFIG_ESP_TIMER_TASK_STACK_SIZE=6144
+
+# Partition Table - Enable OTA support
+CONFIG_PARTITION_TABLE_TWO_OTA=y
+CONFIG_PARTITION_TABLE_SINGLE_APP=n
+
+# Bootloader - Enable app rollback for OTA safety
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
