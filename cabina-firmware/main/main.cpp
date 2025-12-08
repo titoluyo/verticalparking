@@ -12,6 +12,7 @@
 #include "edge_detect.h"
 #include "telemetry.h"
 #include "calibration.h"
+#include "ota_update.h"
 #include <cstdio>
 #include <cstring>
 
@@ -22,6 +23,21 @@ static calibration_state_t g_calibration_state;
 static bool g_floor_detected_last = false;  // Track floor detection state for edge detection
 static i2c_port_t g_i2c_port = I2C_NUM_0;  // Store I2C port for callback
 
+// OTA topics (static for callback access)
+static char g_topic_ota_update[160];
+static char g_topic_ota_status[160];
+static char g_topic_ota_version[160];
+
+// OTA progress callback - publishes status to MQTT
+static void ota_progress_callback(ota_status_t status, int progress, const char *message) {
+    if (mqtt_client_is_connected()) {
+        char json_buf[256];
+        if (ota_update_json_status(json_buf, sizeof(json_buf)) > 0) {
+            mqtt_client_publish_json(g_topic_ota_status, json_buf, 1, false);
+        }
+    }
+}
+
 // Command handler function
 static void handle_mqtt_command(const char *topic, const char *data, int data_len) {
     // Check if this is a command topic
@@ -31,12 +47,23 @@ static void handle_mqtt_command(const char *topic, const char *data, int data_le
              CONFIG_EXAMPLE_MQTT_SITE_ID,
              CONFIG_EXAMPLE_MQTT_DEVICE_ID);
     
+    // Check for OTA update command topic
+    if (strcmp(topic, g_topic_ota_update) == 0) {
+        ESP_LOGI(TAG, "Received OTA update command");
+        esp_err_t err = ota_update_handle_mqtt_command(data, data_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to handle OTA command: %s", esp_err_to_name(err));
+        }
+        return;
+    }
+    
     if (strcmp(topic, expected_cmd_topic) != 0) {
         return;
     }
     
     // Simple JSON parsing for commands
     // Look for "start_calibration": true or "stop_calibration": true or "set_floor_level": <value>
+    // or OTA commands: "ota_update": {"url": "..."} 
     if (strstr(data, "\"start_calibration\"") != NULL && strstr(data, "true") != NULL) {
         // Get current distance to start calibration
         int current_dist = vl53l0x_read_range_mm(g_i2c_port);
@@ -58,11 +85,19 @@ static void handle_mqtt_command(const char *topic, const char *data, int data_le
         } else {
             ESP_LOGW(TAG, "Invalid set_floor_level command format or value");
         }
+    } else if (strstr(data, "\"ota_update\"") != NULL || strstr(data, "\"url\"") != NULL) {
+        // OTA update command via general cmd topic (alternative format)
+        ESP_LOGI(TAG, "Received OTA update command via cmd topic");
+        esp_err_t err = ota_update_handle_mqtt_command(data, data_len);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to handle OTA command: %s", esp_err_to_name(err));
+        }
     }
 }
 
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Cabina Firmware Starting");
+    ESP_LOGI(TAG, "Firmware version: %s", ota_update_get_current_version());
 
     // Initialize NVS (required for WiFi)
     esp_err_t ret = nvs_flash_init();
@@ -72,9 +107,22 @@ extern "C" void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
+    // Initialize OTA subsystem early (to check for pending validation)
+    if (ota_update_init() != ESP_OK) {
+        ESP_LOGW(TAG, "OTA subsystem initialization failed - continuing without OTA support");
+    }
+
+    // Set OTA progress callback
+    ota_update_set_callback(ota_progress_callback);
+
     // Initialize WiFi
     if (wifi_client_init() != ESP_OK) {
         ESP_LOGE(TAG, "WiFi initialization failed");
+        // If we're pending OTA validation and WiFi fails, rollback
+        if (ota_update_is_pending_validation()) {
+            ESP_LOGE(TAG, "WiFi failed after OTA - initiating rollback");
+            ota_update_rollback();
+        }
         return;
     }
 
@@ -86,12 +134,31 @@ extern "C" void app_main(void) {
     // Initialize MQTT client
     if (mqtt_client_init() != ESP_OK) {
         ESP_LOGE(TAG, "MQTT client initialization failed");
+        // If we're pending OTA validation and MQTT fails, rollback
+        if (ota_update_is_pending_validation()) {
+            ESP_LOGE(TAG, "MQTT failed after OTA - initiating rollback");
+            ota_update_rollback();
+        }
         // Continue anyway - sensors can still work without MQTT
     } else {
         ESP_LOGI(TAG, "MQTT client initialized, waiting for connection...");
         // Wait a bit for MQTT to connect
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
+
+    // Build OTA topics
+    snprintf(g_topic_ota_update, sizeof(g_topic_ota_update), "%s/%s/%s/ota/update",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(g_topic_ota_status, sizeof(g_topic_ota_status), "%s/%s/%s/ota/status",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(g_topic_ota_version, sizeof(g_topic_ota_version), "%s/%s/%s/ota/version",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
 
     // Initialize IR sensors
     if (ir_sensors_init(CONFIG_EXAMPLE_IR1_GPIO, 
@@ -164,6 +231,10 @@ extern "C" void app_main(void) {
     if (mqtt_client_is_connected()) {
         mqtt_client_subscribe(topic_cmd, 1);
         ESP_LOGI(TAG, "Subscribed to command topic: %s", topic_cmd);
+        
+        // Subscribe to OTA update topic
+        mqtt_client_subscribe(g_topic_ota_update, 1);
+        ESP_LOGI(TAG, "Subscribed to OTA topic: %s", g_topic_ota_update);
     } else {
         ESP_LOGW(TAG, "MQTT not connected, will subscribe when connected");
     }
@@ -174,7 +245,26 @@ extern "C" void app_main(void) {
         if (telemetry_json_status(status_json, sizeof(status_json)) > 0) {
             mqtt_client_publish_json(topic_stat, status_json, 1, true);
         }
+        
+        // Publish firmware version on boot
+        #ifdef CONFIG_EXAMPLE_OTA_VERSION_PUBLISH_ON_BOOT
+        char version_json[256];
+        if (ota_update_json_version(version_json, sizeof(version_json)) > 0) {
+            mqtt_client_publish_json(g_topic_ota_version, version_json, 1, true);
+            ESP_LOGI(TAG, "Published firmware version to: %s", g_topic_ota_version);
+        }
+        #endif
     }
+    
+    // Mark firmware as valid if auto-validate is enabled and we're pending validation
+    #ifdef CONFIG_EXAMPLE_OTA_AUTO_VALIDATE
+    if (ota_update_is_pending_validation()) {
+        ESP_LOGI(TAG, "Auto-validating firmware after successful initialization");
+        if (ota_update_mark_valid() == ESP_OK) {
+            ESP_LOGI(TAG, "Firmware validated successfully - rollback cancelled");
+        }
+    }
+    #endif
 
     // Main measurement loop
     int64_t start_time = esp_timer_get_time();
@@ -183,15 +273,33 @@ extern "C" void app_main(void) {
     
     // Subscribe to command topic if MQTT just connected
     bool subscribed_to_cmd = false;
+    bool subscribed_to_ota = false;
     
     while (true) {
-        // Check if MQTT just connected and subscribe to command topic
+        // Check if MQTT just connected and subscribe to command topics
         if (mqtt_client_is_connected() && !subscribed_to_cmd) {
             mqtt_client_subscribe(topic_cmd, 1);
             ESP_LOGI(TAG, "Subscribed to command topic: %s", topic_cmd);
             subscribed_to_cmd = true;
         } else if (!mqtt_client_is_connected() && subscribed_to_cmd) {
             subscribed_to_cmd = false;  // Reset if disconnected
+        }
+        
+        // Subscribe to OTA topic on reconnect
+        if (mqtt_client_is_connected() && !subscribed_to_ota) {
+            mqtt_client_subscribe(g_topic_ota_update, 1);
+            ESP_LOGI(TAG, "Subscribed to OTA topic: %s", g_topic_ota_update);
+            subscribed_to_ota = true;
+            
+            // Re-publish version on reconnect
+            #ifdef CONFIG_EXAMPLE_OTA_VERSION_PUBLISH_ON_BOOT
+            char version_json[256];
+            if (ota_update_json_version(version_json, sizeof(version_json)) > 0) {
+                mqtt_client_publish_json(g_topic_ota_version, version_json, 1, true);
+            }
+            #endif
+        } else if (!mqtt_client_is_connected() && subscribed_to_ota) {
+            subscribed_to_ota = false;  // Reset if disconnected
         }
         
         int distance_mm = vl53l0x_read_range_mm(g_i2c_port);

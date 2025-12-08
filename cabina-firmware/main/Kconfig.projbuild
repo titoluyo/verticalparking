@@ -144,4 +144,35 @@ menu "Example Configuration"
         help
             Interval for publishing status heartbeat messages to MQTT.
 
+    menu "OTA Update Configuration"
+        config EXAMPLE_OTA_VALIDATION_TIMEOUT_SEC
+            int "OTA Validation Timeout (seconds)"
+            range 10 300
+            default 60
+            help
+                Time in seconds after boot to validate firmware after OTA update.
+                If validation is not confirmed within this time, the device will
+                rollback to the previous firmware version.
+
+        config EXAMPLE_OTA_SKIP_CERT_VERIFY
+            bool "Skip HTTPS certificate verification (development only)"
+            default n
+            help
+                Skip certificate verification for HTTPS OTA downloads.
+                WARNING: Only enable for development/testing. Insecure for production!
+
+        config EXAMPLE_OTA_AUTO_VALIDATE
+            bool "Auto-validate firmware after successful init"
+            default y
+            help
+                Automatically mark firmware as valid after successful initialization.
+                If disabled, the application must explicitly call ota_update_mark_valid().
+
+        config EXAMPLE_OTA_VERSION_PUBLISH_ON_BOOT
+            bool "Publish firmware version on boot"
+            default y
+            help
+                Publish the current firmware version to MQTT when the device boots.
+    endmenu
+
 endmenu

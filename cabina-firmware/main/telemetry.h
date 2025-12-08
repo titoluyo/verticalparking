@@ -52,11 +52,27 @@ int telemetry_json_distance(int from_mm, int to_mm,
 /**
  * @brief Build JSON message for status heartbeat
  * 
+ * Includes device status, firmware version, and partition info.
+ * 
  * @param json_buf Buffer to store JSON string
  * @param json_buf_sz Size of JSON buffer
  * @return Number of characters written (excluding null terminator), or -1 on error
  */
 int telemetry_json_status(char *json_buf, size_t json_buf_sz);
+
+/**
+ * @brief Build JSON message for status heartbeat with extended info
+ * 
+ * Includes device status, firmware version, partition info, and OTA status.
+ * 
+ * @param version Firmware version string
+ * @param partition Current running partition name
+ * @param json_buf Buffer to store JSON string
+ * @param json_buf_sz Size of JSON buffer
+ * @return Number of characters written (excluding null terminator), or -1 on error
+ */
+int telemetry_json_status_extended(const char *version, const char *partition,
+                                   char *json_buf, size_t json_buf_sz);
 
 /**
  * @brief Build JSON message for calibration complete event
