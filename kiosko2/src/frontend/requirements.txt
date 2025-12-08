@@ -1,0 +1,5 @@
+# Flask Frontend Requirements
+Flask>=2.2.0
+requests>=2.28.0
+gunicorn>=21.2.0
+python-dotenv>=1.0.0

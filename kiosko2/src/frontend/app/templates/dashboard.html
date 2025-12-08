@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Parking Vertical{% endblock %}
+
+{% block content %}
+<div class="container dashboard">
+    <h1>Dashboard de Cabinas</h1>
+    
+    <div class="cabins-grid" id="cabins-grid">
+        {% for cabin in cabins %}
+        <div class="cabin-card {% if cabin.is_active %}active{% endif %} state-{{ cabin.sensor_state }}">
+            <div class="cabin-header">
+                <h3>{{ cabin.id }}</h3>
+                {% if cabin.is_active %}
+                <span class="badge badge-active">Activa</span>
+                {% endif %}
+            </div>
+            
+            <div class="cabin-status">
+                <div class="status-indicator {{ cabin.sensor_state }}"></div>
+                <span class="status-text">{{ cabin.sensor_message }}</span>
+            </div>
+            
+            <div class="cabin-details">
+                <p><strong>Estado BD:</strong> {{ cabin.estado }}</p>
+                {% if cabin.minimum_distance %}
+                <p><strong>Nivel piso:</strong> {{ cabin.minimum_distance }}mm</p>
+                {% endif %}
+                <p><strong>En piso:</strong> {{ "Sí" if cabin.is_at_floor else "No" }}</p>
+                {% if cabin.calibrating %}
+                <p class="calibrating">🔄 Calibrando...</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% if active_cabin %}
+    <div class="active-cabin-info">
+        <p>Cabina activa actual: <strong>{{ active_cabin }}</strong></p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Auto-refresh dashboard every 5 seconds
+setInterval(function() {
+    fetch('/api/dashboard/cabins')
+        .then(response => response.json())
+        .then(data => {
+            if (data.cabins) {
+                // Reload page to update (simple approach)
+                // For production, implement proper DOM update
+                location.reload();
+            }
+        })
+        .catch(err => console.error('Dashboard refresh error:', err));
+}, 5000);
+</script>
+{% endblock %}

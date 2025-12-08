@@ -1,0 +1,21 @@
+# FastAPI Backend Requirements
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+paho-mqtt>=1.6.0
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.25.0
+pytest-cov>=4.1.0
+
+# Optional: Printer support (installed on Pi only)
+# python-escpos>=3.0.0
+# pyusb>=1.2.0
+
+# Optional: QR detection (installed on Pi only)
+# Pillow>=9.0.0
+# pyzbar>=0.1.9
