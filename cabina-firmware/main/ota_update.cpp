@@ -244,37 +244,37 @@ esp_err_t ota_update_start(const char *firmware_url) {
 
     // Atomically check and set status to prevent race condition
     // Take mutex to ensure atomic check-and-set operation
-    if (s_ota_mutex && xSemaphoreTake(s_ota_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
-        // Check if OTA is already in progress while holding mutex
-        if (s_ota_status == OTA_STATUS_CHECKING || 
-            s_ota_status == OTA_STATUS_DOWNLOADING || 
-            s_ota_status == OTA_STATUS_VERIFYING ||
-            s_ota_status == OTA_STATUS_APPLYING) {
-            xSemaphoreGive(s_ota_mutex);
-            ESP_LOGW(TAG, "OTA update already in progress");
-            return ESP_ERR_INVALID_STATE;
-        }
-        
-        // Mark as busy BEFORE releasing mutex to prevent race condition
-        s_ota_status = OTA_STATUS_CHECKING;
-        s_ota_progress = 0;
-        strncpy(s_ota_message, "Starting OTA update", sizeof(s_ota_message) - 1);
-        s_ota_message[sizeof(s_ota_message) - 1] = '\0';
-        
-        // Store URL while holding mutex
-        strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
-        s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
-        
-        xSemaphoreGive(s_ota_mutex);
-    } else {
-        // Fallback if mutex not available - check without lock (less safe)
-        if (ota_update_is_busy()) {
-            ESP_LOGW(TAG, "OTA update already in progress");
-            return ESP_ERR_INVALID_STATE;
-        }
-        strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
-        s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
+    if (s_ota_mutex == NULL) {
+        ESP_LOGE(TAG, "OTA mutex not initialized - call ota_update_init() first");
+        return ESP_ERR_INVALID_STATE;
     }
+    
+    if (xSemaphoreTake(s_ota_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Failed to acquire OTA mutex - system busy");
+        return ESP_ERR_TIMEOUT;
+    }
+    
+    // Check if OTA is already in progress while holding mutex
+    if (s_ota_status == OTA_STATUS_CHECKING || 
+        s_ota_status == OTA_STATUS_DOWNLOADING || 
+        s_ota_status == OTA_STATUS_VERIFYING ||
+        s_ota_status == OTA_STATUS_APPLYING) {
+        xSemaphoreGive(s_ota_mutex);
+        ESP_LOGW(TAG, "OTA update already in progress");
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // Mark as busy BEFORE releasing mutex to prevent race condition
+    s_ota_status = OTA_STATUS_CHECKING;
+    s_ota_progress = 0;
+    strncpy(s_ota_message, "Starting OTA update", sizeof(s_ota_message) - 1);
+    s_ota_message[sizeof(s_ota_message) - 1] = '\0';
+    
+    // Store URL while holding mutex
+    strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
+    s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
+    
+    xSemaphoreGive(s_ota_mutex);
 
     BaseType_t ret = xTaskCreate(ota_task, "ota_task", 
                                   OTA_TASK_STACK_SIZE, NULL, 
