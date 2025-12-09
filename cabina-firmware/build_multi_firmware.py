@@ -8,6 +8,9 @@ Each binary will have the device ID compiled into it.
 Usage:
     python build_multi_firmware.py --device-ids cabina-01 cabina-02 cabina-03
     python build_multi_firmware.py --all  # Build for all default device IDs
+
+    If you get "idf.py not found", activate the ESP-IDF environment first:
+    pwsh.exe -ExecutionPolicy Bypass -NoExit -File "C:\Espressif/Initialize-Idf.ps1" -IdfId esp-idf-29323a3f5a0574597d6dbaa0af20c775
 """
 
 import argparse
