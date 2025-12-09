@@ -99,10 +99,10 @@ static void update_status(ota_status_t status, int progress, const char *message
 static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
     switch (evt->event_id) {
         case HTTP_EVENT_ERROR:
-            ESP_LOGD(TAG, "HTTP_EVENT_ERROR");
+            ESP_LOGE(TAG, "HTTP_EVENT_ERROR");
             break;
         case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_CONNECTED");
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_CONNECTED");
             break;
         case HTTP_EVENT_HEADER_SENT:
             ESP_LOGD(TAG, "HTTP_EVENT_HEADER_SENT");
@@ -115,13 +115,13 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
             ESP_LOGD(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
             break;
         case HTTP_EVENT_ON_FINISH:
-            ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
             break;
         case HTTP_EVENT_DISCONNECTED:
-            ESP_LOGD(TAG, "HTTP_EVENT_DISCONNECTED");
+            ESP_LOGW(TAG, "HTTP_EVENT_DISCONNECTED");
             break;
         case HTTP_EVENT_REDIRECT:
-            ESP_LOGD(TAG, "HTTP_EVENT_REDIRECT");
+            ESP_LOGI(TAG, "HTTP_EVENT_REDIRECT to: %s", evt->header_value);
             break;
     }
     return ESP_OK;
@@ -140,12 +140,30 @@ static void ota_task(void *pvParameter) {
     http_config.event_handler = http_event_handler;
     http_config.timeout_ms = 30000;
     http_config.keep_alive_enable = true;
+    // Increase buffer size for better performance
+    http_config.buffer_size = 1024;
+    http_config.buffer_size_tx = 1024;
     
-    // For HTTPS, we'd need to configure certificates
-    // For now, support HTTP (skip cert verification for development)
-    #ifdef CONFIG_EXAMPLE_OTA_SKIP_CERT_VERIFY
-    http_config.skip_cert_common_name_check = true;
-    #endif
+    // Check URL scheme and configure accordingly
+    bool is_http = (strncmp(s_ota_url, "http://", 7) == 0);
+    bool is_https = (strncmp(s_ota_url, "https://", 8) == 0);
+    
+    if (is_http) {
+        ESP_LOGI(TAG, "Using HTTP (not HTTPS) for OTA update");
+        // For HTTP URLs, skip certificate verification (not applicable but required by esp_https_ota)
+        http_config.skip_cert_common_name_check = true;
+    } else if (is_https) {
+        ESP_LOGI(TAG, "Using HTTPS for OTA update");
+        // For HTTPS, configure certificate verification based on config
+        #ifdef CONFIG_EXAMPLE_OTA_SKIP_CERT_VERIFY
+        http_config.skip_cert_common_name_check = true;
+        #else
+        // HTTPS requires proper certificate configuration
+        ESP_LOGW(TAG, "HTTPS OTA requires certificate configuration or CONFIG_EXAMPLE_OTA_SKIP_CERT_VERIFY");
+        #endif
+    } else {
+        ESP_LOGW(TAG, "URL scheme not recognized: %s", s_ota_url);
+    }
 
     // Configure OTA
     esp_https_ota_config_t ota_config = {};

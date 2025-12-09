@@ -11,6 +11,6 @@ set(
   "List of components to include"
   )
 
-project(cabina-firmware)
+project(cabina-firmware VERSION 1.0.1)
 
 set(CMAKE_CXX_STANDARD 20)

@@ -99,6 +99,7 @@ static void handle_mqtt_command(const char *topic, const char *data, int data_le
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Cabina Firmware Starting");
     ESP_LOGI(TAG, "Firmware version: %s", ota_update_get_current_version());
+    ESP_LOGI(TAG, "*** OTA TEST BUILD - Update successful if you see this message! ***");
 
     // Initialize NVS (required for WiFi)
     esp_err_t ret = nvs_flash_init();
