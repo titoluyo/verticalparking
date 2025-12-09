@@ -398,9 +398,11 @@ esp_err_t ota_update_handle_mqtt_command(const char *data, int data_len) {
     strncpy(url, url_start, url_len);
     url[url_len] = '\0';
 
-    // Check for "force" field (optional) - must find "force" followed by : and true
+    // Check for "force" field (optional)
+    // Search from after the URL's closing quote to avoid matching content inside the URL string
     bool force = false;
-    const char *force_key = strstr(data, "\"force\"");
+    const char *search_start = url_end + 1;  // Start after URL's closing quote
+    const char *force_key = strstr(search_start, "\"force\"");
     if (force_key != NULL) {
         // Find the colon after "force"
         const char *colon = strchr(force_key + 7, ':');
