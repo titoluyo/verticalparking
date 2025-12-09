@@ -68,7 +68,8 @@ void ota_update_set_callback(ota_progress_callback_t callback) {
 }
 
 static void update_status(ota_status_t status, int progress, const char *message) {
-    if (xSemaphoreTake(s_ota_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+    // Check if mutex is valid before using it
+    if (s_ota_mutex && xSemaphoreTake(s_ota_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         s_ota_status = status;
         s_ota_progress = progress;
         if (message) {
@@ -76,6 +77,14 @@ static void update_status(ota_status_t status, int progress, const char *message
             s_ota_message[sizeof(s_ota_message) - 1] = '\0';
         }
         xSemaphoreGive(s_ota_mutex);
+    } else if (!s_ota_mutex) {
+        // Mutex not initialized - update state directly (single-threaded context)
+        s_ota_status = status;
+        s_ota_progress = progress;
+        if (message) {
+            strncpy(s_ota_message, message, sizeof(s_ota_message) - 1);
+            s_ota_message[sizeof(s_ota_message) - 1] = '\0';
+        }
     }
 
     // Invoke callback if set
@@ -121,6 +130,8 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt) {
 static void ota_task(void *pvParameter) {
     ESP_LOGI(TAG, "Starting OTA update from: %s", s_ota_url);
     
+    // Status already set to CHECKING in ota_update_start() to prevent race condition
+    // Update message to show we're connecting
     update_status(OTA_STATUS_CHECKING, 0, "Connecting to server");
 
     // Configure HTTP client
@@ -231,15 +242,39 @@ esp_err_t ota_update_start(const char *firmware_url) {
         return ESP_ERR_INVALID_SIZE;
     }
 
-    // Check if OTA is already in progress
-    if (ota_update_is_busy()) {
-        ESP_LOGW(TAG, "OTA update already in progress");
-        return ESP_ERR_INVALID_STATE;
+    // Atomically check and set status to prevent race condition
+    // Take mutex to ensure atomic check-and-set operation
+    if (s_ota_mutex && xSemaphoreTake(s_ota_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        // Check if OTA is already in progress while holding mutex
+        if (s_ota_status == OTA_STATUS_CHECKING || 
+            s_ota_status == OTA_STATUS_DOWNLOADING || 
+            s_ota_status == OTA_STATUS_VERIFYING ||
+            s_ota_status == OTA_STATUS_APPLYING) {
+            xSemaphoreGive(s_ota_mutex);
+            ESP_LOGW(TAG, "OTA update already in progress");
+            return ESP_ERR_INVALID_STATE;
+        }
+        
+        // Mark as busy BEFORE releasing mutex to prevent race condition
+        s_ota_status = OTA_STATUS_CHECKING;
+        s_ota_progress = 0;
+        strncpy(s_ota_message, "Starting OTA update", sizeof(s_ota_message) - 1);
+        s_ota_message[sizeof(s_ota_message) - 1] = '\0';
+        
+        // Store URL while holding mutex
+        strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
+        s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
+        
+        xSemaphoreGive(s_ota_mutex);
+    } else {
+        // Fallback if mutex not available - check without lock (less safe)
+        if (ota_update_is_busy()) {
+            ESP_LOGW(TAG, "OTA update already in progress");
+            return ESP_ERR_INVALID_STATE;
+        }
+        strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
+        s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
     }
-
-    // Store URL and start task
-    strncpy(s_ota_url, firmware_url, OTA_URL_MAX_LEN - 1);
-    s_ota_url[OTA_URL_MAX_LEN - 1] = '\0';
 
     BaseType_t ret = xTaskCreate(ota_task, "ota_task", 
                                   OTA_TASK_STACK_SIZE, NULL, 
@@ -247,6 +282,8 @@ esp_err_t ota_update_start(const char *firmware_url) {
     
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create OTA task");
+        // Reset status on failure
+        update_status(OTA_STATUS_FAILED, ESP_ERR_NO_MEM, "Failed to create OTA task");
         return ESP_ERR_NO_MEM;
     }
 
@@ -361,8 +398,24 @@ esp_err_t ota_update_handle_mqtt_command(const char *data, int data_len) {
     strncpy(url, url_start, url_len);
     url[url_len] = '\0';
 
-    // Check for "force" field (optional)
-    bool force = (strstr(data, "\"force\"") != NULL && strstr(data, "true") != NULL);
+    // Check for "force" field (optional) - must find "force" followed by : and true
+    bool force = false;
+    const char *force_key = strstr(data, "\"force\"");
+    if (force_key != NULL) {
+        // Find the colon after "force"
+        const char *colon = strchr(force_key + 7, ':');
+        if (colon != NULL) {
+            // Skip whitespace after colon
+            const char *value = colon + 1;
+            while (*value == ' ' || *value == '\t') {
+                value++;
+            }
+            // Check if the value is "true" (case-sensitive JSON boolean)
+            if (strncmp(value, "true", 4) == 0) {
+                force = true;
+            }
+        }
+    }
 
     ESP_LOGI(TAG, "OTA command received: url=%s, force=%s", url, force ? "true" : "false");
 

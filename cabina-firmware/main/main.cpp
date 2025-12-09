@@ -30,7 +30,8 @@ static char g_topic_ota_version[160];
 
 // OTA progress callback - publishes status to MQTT
 static void ota_progress_callback(ota_status_t status, int progress, const char *message) {
-    if (mqtt_client_is_connected()) {
+    // Check that topic is initialized (not empty) and MQTT is connected
+    if (g_topic_ota_status[0] != '\0' && mqtt_client_is_connected()) {
         char json_buf[256];
         if (ota_update_json_status(json_buf, sizeof(json_buf)) > 0) {
             mqtt_client_publish_json(g_topic_ota_status, json_buf, 1, false);
@@ -112,7 +113,21 @@ extern "C" void app_main(void) {
         ESP_LOGW(TAG, "OTA subsystem initialization failed - continuing without OTA support");
     }
 
-    // Set OTA progress callback
+    // Build OTA topics BEFORE setting callback to avoid publishing to uninitialized topic
+    snprintf(g_topic_ota_update, sizeof(g_topic_ota_update), "%s/%s/%s/ota/update",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(g_topic_ota_status, sizeof(g_topic_ota_status), "%s/%s/%s/ota/status",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+    snprintf(g_topic_ota_version, sizeof(g_topic_ota_version), "%s/%s/%s/ota/version",
+             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
+             CONFIG_EXAMPLE_MQTT_SITE_ID,
+             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
+
+    // Set OTA progress callback (after topics are initialized)
     ota_update_set_callback(ota_progress_callback);
 
     // Initialize WiFi
@@ -145,20 +160,6 @@ extern "C" void app_main(void) {
         // Wait a bit for MQTT to connect
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
-
-    // Build OTA topics
-    snprintf(g_topic_ota_update, sizeof(g_topic_ota_update), "%s/%s/%s/ota/update",
-             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
-             CONFIG_EXAMPLE_MQTT_SITE_ID,
-             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
-    snprintf(g_topic_ota_status, sizeof(g_topic_ota_status), "%s/%s/%s/ota/status",
-             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
-             CONFIG_EXAMPLE_MQTT_SITE_ID,
-             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
-    snprintf(g_topic_ota_version, sizeof(g_topic_ota_version), "%s/%s/%s/ota/version",
-             CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
-             CONFIG_EXAMPLE_MQTT_SITE_ID,
-             CONFIG_EXAMPLE_MQTT_DEVICE_ID);
 
     // Initialize IR sensors
     if (ir_sensors_init(CONFIG_EXAMPLE_IR1_GPIO, 
