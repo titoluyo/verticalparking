@@ -1,0 +1,7 @@
+{
+  "cabina-01": "http://192.168.10.147:8080/cabina-firmware-cabina-01.bin",
+  "cabina-02": "http://192.168.10.147:8080/cabina-firmware-cabina-02.bin",
+  "cabina-03": "http://192.168.10.147:8080/cabina-firmware-cabina-03.bin",
+  "cabina-04": "http://192.168.10.147:8080/cabina-firmware-cabina-04.bin"
+}
+

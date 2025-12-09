@@ -11,12 +11,14 @@ import sys
 from pathlib import Path
 
 # Configure your cabins here: [device_id, port]
+# Edit this list with your actual device IDs and ports
 CABINS = [
-    ["cabin-A01", "COM3"],
-    ["cabin-A02", "COM4"],
-    ["cabin-A03", "COM5"],
+    ["cabina-01", "COM3"],
+    ["cabina-02", "COM4"],
+    ["cabina-03", "COM5"],
     # Add more cabins as needed
-    # ["cabin-A04", "COM6"],
+    # ["cabina-04", "COM6"],
+    # ["cabina-05", "COM7"],
 ]
 
 def main():

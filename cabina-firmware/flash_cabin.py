@@ -96,16 +96,16 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python flash_cabin.py --device-id cabin-A01 --port COM3
-  python flash_cabin.py --device-id cabin-A02 --port COM4 --monitor
-  python flash_cabin.py -d cabin-A03 -p /dev/ttyUSB0
+  python flash_cabin.py --device-id cabina-01 --port COM3
+  python flash_cabin.py --device-id cabina-02 --port COM4 --monitor
+  python flash_cabin.py -d cabina-03 -p /dev/ttyUSB0
         """
     )
     
     parser.add_argument(
         '-d', '--device-id',
         required=True,
-        help='Device ID (e.g., cabin-A01, cabin-A02)'
+        help='Device ID (e.g., cabina-01, cabina-02)'
     )
     
     parser.add_argument(
