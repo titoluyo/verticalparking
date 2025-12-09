@@ -108,12 +108,10 @@ extern "C" void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    // Initialize OTA subsystem early (to check for pending validation)
-    if (ota_update_init() != ESP_OK) {
-        ESP_LOGW(TAG, "OTA subsystem initialization failed - continuing without OTA support");
-    }
-
-    // Build OTA topics BEFORE setting callback to avoid publishing to uninitialized topic
+    // Build OTA topics FIRST, before any OTA initialization.
+    // This ensures g_topic_ota_status is valid before ota_update_init() runs,
+    // which may trigger rollback handling that invokes the progress callback.
+    // The callback publishes to g_topic_ota_status, so it must be initialized first.
     snprintf(g_topic_ota_update, sizeof(g_topic_ota_update), "%s/%s/%s/ota/update",
              CONFIG_EXAMPLE_MQTT_TOPIC_BASE,
              CONFIG_EXAMPLE_MQTT_SITE_ID,
@@ -127,8 +125,15 @@ extern "C" void app_main(void) {
              CONFIG_EXAMPLE_MQTT_SITE_ID,
              CONFIG_EXAMPLE_MQTT_DEVICE_ID);
 
-    // Set OTA progress callback (after topics are initialized)
+    // Set OTA progress callback BEFORE ota_update_init() so any status
+    // updates during initialization (e.g., rollback detection) are captured.
+    // Topics are already initialized above, so the callback can safely publish.
     ota_update_set_callback(ota_progress_callback);
+
+    // Initialize OTA subsystem (checks for pending validation, may trigger rollback)
+    if (ota_update_init() != ESP_OK) {
+        ESP_LOGW(TAG, "OTA subsystem initialization failed - continuing without OTA support");
+    }
 
     // Initialize WiFi
     if (wifi_client_init() != ESP_OK) {
