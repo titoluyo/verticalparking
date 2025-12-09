@@ -76,6 +76,21 @@ int telemetry_json_status(char *json_buf, size_t json_buf_sz) {
                     CONFIG_EXAMPLE_MQTT_DEVICE_ID);
 }
 
+int telemetry_json_status_extended(const char *version, const char *partition,
+                                   char *json_buf, size_t json_buf_sz) {
+    if (!json_buf || json_buf_sz == 0) {
+        return -1;
+    }
+    
+    return snprintf(json_buf, json_buf_sz,
+                    "{\"site\":\"%s\",\"device\":\"%s\",\"status\":\"online\","
+                    "\"version\":\"%s\",\"partition\":\"%s\"}",
+                    CONFIG_EXAMPLE_MQTT_SITE_ID,
+                    CONFIG_EXAMPLE_MQTT_DEVICE_ID,
+                    version ? version : "unknown",
+                    partition ? partition : "unknown");
+}
+
 int telemetry_json_calibration_complete(int floor_level_mm, int calibration_rounds,
                                         int min_distance_mm, int max_distance_mm,
                                         char *json_buf, size_t json_buf_sz) {
