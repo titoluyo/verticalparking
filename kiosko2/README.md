@@ -28,12 +28,11 @@ kiosko2/
 │       └── requirements.txt
 │
 ├── scripts/                  # Deployment scripts
-│   ├── deploy.sh            # Deployment script
+│   ├── deploy.sh            # Manual deployment script
 │   ├── setup_pi.sh          # Raspberry Pi setup
+│   ├── setup_github_runner_windows.ps1  # GitHub Actions runner (Windows)
+│   ├── setup_github_runner_linux.sh     # GitHub Actions runner (Linux)
 │   └── test_remote.sh       # Remote E2E testing
-│
-├── .github/workflows/
-│   └── deploy.yml           # CI/CD pipeline
 │
 └── docs/
     └── DEPLOYMENT.md        # Deployment documentation
@@ -96,8 +95,8 @@ python app.py
 
 ### Deployment
 
-- GitHub Actions CI/CD
-- SSH deployment to Raspberry Pi
+- GitHub Actions CI/CD with self-hosted runner (works with private IPs)
+- Automated deployment on push to `main` branch
 - Systemd service management
 - Automated rollback support
 
@@ -147,7 +146,60 @@ FLASK_SECRET_KEY=your-flask-secret
 
 See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
 
-Quick deployment:
+### GitHub Actions (Recommended)
+
+**Option A: Using Docker (Easiest)**
+
+1. **Get registration token:**
+   - Go to: `https://github.com/<USERNAME>/verticalparking/settings/actions/runners/new`
+   - Copy the registration token
+
+2. **Run Docker setup:**
+   ```powershell
+   # Windows
+   cd kiosko2\scripts
+   .\setup_github_runner_docker.ps1 -RepoOwner <USERNAME> -RepoName verticalparking
+   ```
+   ```bash
+   # Linux/Mac/WSL
+   cd kiosko2/scripts
+   chmod +x setup_github_runner_docker.sh
+   ./setup_github_runner_docker.sh <USERNAME> verticalparking
+   ```
+
+**Option B: Native Installation**
+
+1. **Get registration token** (same as above)
+
+2. **Setup SSH key for Pi access:**
+   ```bash
+   ssh-keygen -t ed25519 -C "github-actions-runner"
+   ssh-copy-id -i ~/.ssh/id_ed25519.pub pi@192.168.10.50
+   ```
+
+3. **Setup runner:**
+   ```powershell
+   # Windows
+   cd kiosko2\scripts
+   .\setup_github_runner_windows.ps1 -GitHubToken <REGISTRATION_TOKEN> -RepoOwner <USERNAME> -RepoName verticalparking
+   ```
+   ```bash
+   # Linux
+   cd kiosko2/scripts
+   ./setup_github_runner_linux.sh <REGISTRATION_TOKEN> <USERNAME> verticalparking
+   ```
+
+3. **Configure GitHub Secrets:**
+   - `PI_HOST`: `192.168.10.50`
+   - `PI_USER`: `pi`
+   - `PI_SSH_KEY`: Your private SSH key content
+   - `PI_SSH_PORT`: `22` (optional)
+
+4. **Automatic deployment:**
+   - Push to `main` branch → Tests run → Auto-deploy to Pi via SSH
+   - Works even if Pi is on private network (192.168.x.x)
+
+### Manual Deployment
 
 ```bash
 # From Windows/Linux development machine

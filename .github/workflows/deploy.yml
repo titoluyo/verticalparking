@@ -61,7 +61,7 @@ jobs:
 
   deploy:
     name: Deploy to Raspberry Pi
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [test]
     # Run deploy if: (tests passed OR deploy_only is true) AND on main branch AND not a PR
     # Using always() ensures this job runs even when 'test' job is skipped
@@ -75,31 +75,83 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Create deployment artifact
+      - name: Setup SSH
+        shell: bash
         run: |
-          # Create tarball of kiosko2 directory
-          tar -czvf kiosko2-deploy.tar.gz \
+          # Create .ssh directory if it doesn't exist
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            SSH_DIR="$HOME/.ssh"
+            TEMP_DIR="/tmp"
+          else
+            SSH_DIR="$HOME/.ssh"
+            TEMP_DIR="/tmp"
+          fi
+          
+          mkdir -p "$SSH_DIR"
+          chmod 700 "$SSH_DIR"
+          
+          # Write SSH key from secret
+          echo "${{ secrets.PI_SSH_KEY }}" > "$SSH_DIR/pi_key"
+          chmod 600 "$SSH_DIR/pi_key"
+          
+          # Add Pi to known hosts (skip host key checking for private IPs)
+          ssh-keyscan -H ${{ secrets.PI_HOST }} >> "$SSH_DIR/known_hosts" 2>/dev/null || true
+      
+      - name: Deploy to Raspberry Pi via SSH
+        shell: bash
+        run: |
+          # Determine paths based on OS
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            SSH_DIR="$HOME/.ssh"
+            TEMP_DIR="/tmp"
+            # On Windows, use Git Bash or WSL paths
+            if [ -d "/c/Users" ]; then
+              TEMP_DIR="/tmp"
+            else
+              TEMP_DIR="$TMP"
+            fi
+          else
+            SSH_DIR="$HOME/.ssh"
+            TEMP_DIR="/tmp"
+          fi
+          
+          SSH_KEY="$SSH_DIR/pi_key"
+          SSH_PORT="${{ secrets.PI_SSH_PORT || 22 }}"
+          PI_USER="${{ secrets.PI_USER }}"
+          PI_HOST="${{ secrets.PI_HOST }}"
+          DEPLOY_DIR="/home/${PI_USER}/verticalparking"
+          BACKUP_DIR="/home/${PI_USER}/backups"
+          PACKAGE_FILE="$TEMP_DIR/kiosko2-deploy.tar.gz"
+          
+          # Create deployment package
+          echo "Creating deployment package..."
+          tar -czf "$PACKAGE_FILE" \
             --exclude='__pycache__' \
             --exclude='*.pyc' \
             --exclude='.pytest_cache' \
             --exclude='*.egg-info' \
             --exclude='.venv' \
             --exclude='venv' \
+            --exclude='.git' \
             kiosko2/
-      
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.PI_HOST }}
-          username: ${{ secrets.PI_USER }}
-          key: ${{ secrets.PI_SSH_KEY }}
-          port: ${{ secrets.PI_SSH_PORT || 22 }}
-          script: |
+          
+          # Transfer package to Pi
+          echo "Transferring package to Raspberry Pi..."
+          scp -i "$SSH_KEY" \
+              -o StrictHostKeyChecking=no \
+              -P "$SSH_PORT" \
+              "$PACKAGE_FILE" \
+              ${PI_USER}@${PI_HOST}:/tmp/
+          
+          # Deploy on Pi
+          ssh -i "$SSH_KEY" \
+              -o StrictHostKeyChecking=no \
+              -p "$SSH_PORT" \
+              ${PI_USER}@${PI_HOST} << 'ENDSSH'
             set -e
             
-            # Configuration
-            DEPLOY_DIR="/home/${{ secrets.PI_USER }}/verticalparking"
-            BACKUP_DIR="/home/${{ secrets.PI_USER }}/backups"
+            DEPLOY_DIR="/home/${USER}/verticalparking"
+            BACKUP_DIR="/home/${USER}/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             
             # Create directories
@@ -111,16 +163,10 @@ jobs:
               tar -czvf "$BACKUP_DIR/kiosko2_$TIMESTAMP.tar.gz" -C "$DEPLOY_DIR" kiosko2/ || true
             fi
             
-            # Pull latest changes
-            cd "$DEPLOY_DIR"
-            if [ -d ".git" ]; then
-              echo "Pulling latest changes..."
-              git fetch origin main
-              git reset --hard origin/main
-            else
-              echo "Cloning repository..."
-              git clone ${{ github.server_url }}/${{ github.repository }}.git .
-            fi
+            # Extract new deployment
+            echo "Extracting new deployment..."
+            tar -xzf /tmp/kiosko2-deploy.tar.gz -C "$DEPLOY_DIR"
+            rm /tmp/kiosko2-deploy.tar.gz
             
             # Update backend dependencies
             echo "Updating backend dependencies..."
@@ -156,6 +202,10 @@ jobs:
             curl -f http://localhost:5000/ || echo "Frontend health check failed"
             
             echo "Deployment complete!"
+          ENDSSH
+          
+          # Cleanup
+          rm -f "$PACKAGE_FILE"
 
   notify:
     name: Notify on Failure

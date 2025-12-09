@@ -176,14 +176,148 @@ WantedBy=multi-user.target
 
 ## Deployment Methods
 
-### Method 1: GitHub Actions (Recommended)
+### Method 1: GitHub Actions with Self-Hosted Runner (Recommended)
 
-Configure GitHub Secrets:
-- `PI_HOST`: Raspberry Pi IP address or hostname
-- `PI_USER`: SSH username (usually `pi`)
-- `PI_SSH_KEY`: Private SSH key for authentication
+This method uses a GitHub Actions self-hosted runner installed on your development machine (Windows laptop or Linux mini PC). The runner connects to the Raspberry Pi via SSH to deploy, which works even if the Pi is on a private network (e.g., `192.168.10.50`).
 
-Deployment happens automatically on push to `main` branch.
+**Benefits:**
+- Runner runs on a more powerful machine (Windows/Linux laptop/mini PC)
+- Can manage multiple Raspberry Pis from one runner
+- Pi doesn't need to run the runner service (saves resources)
+- Works with private IP addresses since runner is on the same network
+
+#### Setup GitHub Actions Runner
+
+**Option A: Using Docker (Recommended - Easier and More Reliable)**
+
+1. **Get Registration Token:**
+   - Go to: `https://github.com/<USERNAME>/<REPO>/settings/actions/runners/new`
+   - Copy the registration token (it's different from a PAT)
+
+2. **Run Docker Setup:**
+   
+   On Windows (PowerShell):
+   ```powershell
+   cd kiosko2\scripts
+   .\setup_github_runner_docker.ps1 -RepoOwner <USERNAME> -RepoName verticalparking
+   ```
+   
+   On Linux/Mac/WSL:
+   ```bash
+   cd kiosko2/scripts
+   chmod +x setup_github_runner_docker.sh
+   ./setup_github_runner_docker.sh <USERNAME> verticalparking
+   ```
+
+3. **Or use Docker Compose:**
+   ```bash
+   # Create .env file
+   echo "GITHUB_TOKEN=<registration_token>" > .env
+   echo "GITHUB_REPOSITORY=<username>/verticalparking" >> .env
+   echo "RUNNER_NAME=docker-runner" >> .env
+   
+   # Start runner
+   docker-compose -f kiosko2/scripts/docker-compose.runner.yml up -d
+   ```
+
+**Option B: Native Installation (Alternative)**
+
+1. **Get Registration Token:**
+   - Go to: `https://github.com/<USERNAME>/<REPO>/settings/actions/runners/new`
+   - Copy the registration token
+
+2. **Setup SSH Key for Pi Access:**
+   ```bash
+   # On Windows (PowerShell) or Linux
+   # Generate SSH key if you don't have one
+   ssh-keygen -t ed25519 -C "github-actions-runner"
+   
+   # Copy public key to Raspberry Pi
+   ssh-copy-id -i ~/.ssh/id_ed25519.pub pi@192.168.10.50
+   
+   # Test connection
+   ssh pi@192.168.10.50 "echo 'SSH connection successful'"
+   ```
+
+3. **Install Runner on Windows:**
+   ```powershell
+   cd kiosko2\scripts
+   .\setup_github_runner_windows.ps1 -GitHubToken <REGISTRATION_TOKEN> -RepoOwner <USERNAME> -RepoName verticalparking
+   ```
+   
+   **Note:** Use the registration token from step 1, NOT a Personal Access Token (PAT).
+
+   Or on Linux:
+   ```bash
+   cd kiosko2/scripts
+   chmod +x setup_github_runner_linux.sh
+   ./setup_github_runner_linux.sh <REGISTRATION_TOKEN> <USERNAME> verticalparking
+   ```
+
+4. **Configure GitHub Secrets:**
+   - Go to your GitHub repository → Settings → Secrets and variables → Actions
+   - Add these secrets:
+     - `PI_HOST`: `192.168.10.50` (your Pi's IP)
+     - `PI_USER`: `pi` (SSH username)
+     - `PI_SSH_KEY`: Contents of your private SSH key (`~/.ssh/id_ed25519` on Linux, or the key file on Windows)
+     - `PI_SSH_PORT`: `22` (optional, only if using non-standard port)
+
+5. **Verify the runner is registered:**
+   - Go to your GitHub repository → Settings → Actions → Runners
+   - You should see your Windows/Linux runner listed
+
+#### How It Works
+
+- Tests run on GitHub-hosted runners (Ubuntu)
+- When tests pass, the deployment job runs on your self-hosted runner (Windows/Linux machine)
+- The runner checks out code, creates a deployment package, and SSHes to the Pi
+- The Pi receives the package, updates dependencies, and restarts services
+- No need for GitHub to access your Pi's private IP directly
+
+#### Managing the Runner
+
+**Windows:**
+```powershell
+# Check runner status
+Get-Service | Where-Object {$_.Name -like "*GitHub Actions*"}
+
+# Stop runner
+cd $env:USERPROFILE\actions-runner
+.\svc.cmd stop
+
+# Start runner
+.\svc.cmd start
+
+# Uninstall runner
+.\svc.cmd uninstall
+.\config.cmd remove --token <token>
+```
+
+**Linux:**
+```bash
+# Check runner status
+sudo systemctl status actions.runner.<owner>-<repo>.<runner-name>.service
+
+# View runner logs
+journalctl -u actions.runner.<owner>-<repo>.<runner-name>.service -f
+
+# Stop runner
+cd ~/actions-runner
+sudo ./svc.sh stop
+
+# Start runner
+sudo ./svc.sh start
+
+# Uninstall runner
+sudo ./svc.sh uninstall
+cd ~/actions-runner
+./config.sh remove --token <token>
+```
+
+**Note:** The runner needs:
+- Internet access to communicate with GitHub
+- Network access to the Raspberry Pi (same LAN or VPN)
+- SSH key configured for passwordless access to the Pi
 
 ### Method 2: Manual Deployment Script
 

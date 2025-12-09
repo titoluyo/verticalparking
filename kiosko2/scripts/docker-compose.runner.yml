@@ -1,0 +1,34 @@
+version: '3.8'
+
+# Docker Compose file for GitHub Actions Runner
+# Usage:
+#   docker-compose -f docker-compose.runner.yml up -d
+#
+# Before running, set environment variables:
+#   export GITHUB_TOKEN=<registration_token>
+#   export REPO_URL=https://github.com/<owner>/<repo>
+#   export RUNNER_NAME=<runner-name>
+#
+# Or create a .env file:
+#   GITHUB_TOKEN=your_registration_token
+#   REPO_URL=https://github.com/titoluyo/verticalparking
+#   RUNNER_NAME=docker-runner
+
+services:
+  github-runner:
+    image: myoung34/github-runner:latest
+    container_name: github-runner-verticalparking
+    restart: unless-stopped
+    environment:
+      - RUNNER_NAME=${RUNNER_NAME:-docker-runner}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - REPO_URL=${REPO_URL}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - github-runner-net
+
+networks:
+  github-runner-net:
+    driver: bridge
+
