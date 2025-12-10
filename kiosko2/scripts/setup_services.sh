@@ -30,10 +30,23 @@ log_error() {
 }
 
 # Configuration
-KIOSKO_USER="${USER}"
+# Detect the actual user (even if script is run with sudo)
+if [ -n "$SUDO_USER" ]; then
+    KIOSKO_USER="$SUDO_USER"
+elif [ -n "$USER" ] && [ "$USER" != "root" ]; then
+    KIOSKO_USER="$USER"
+else
+    # Fallback: try to get the user from the home directory
+    KIOSKO_USER=$(basename "$HOME" 2>/dev/null || echo "pi")
+    log_warn "Could not detect user, using: $KIOSKO_USER"
+fi
+
 DEPLOY_DIR="/home/${KIOSKO_USER}/verticalparking_deploy"
 BACKEND_PORT=8000
 FRONTEND_PORT=5000
+
+log_info "Detected user: $KIOSKO_USER"
+log_info "Deployment directory: $DEPLOY_DIR"
 
 log_info "Setting up Kiosko2 systemd services..."
 
@@ -125,4 +138,10 @@ echo ""
 log_info "Check service status with:"
 echo "  sudo systemctl status kiosko2-backend"
 echo "  sudo systemctl status kiosko2-frontend"
+echo ""
+log_info "View live logs with:"
+echo "  sudo journalctl -u kiosko2-backend -f"
+echo "  sudo journalctl -u kiosko2-frontend -f"
+echo "  sudo journalctl -u kiosko2-backend -u kiosko2-frontend -f  # Both services"
+echo "  Or use: ./view_logs.sh [backend|frontend|both]"
 
