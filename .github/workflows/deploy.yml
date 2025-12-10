@@ -196,78 +196,42 @@ jobs:
             pip install -r requirements.txt
             deactivate
             
-            # Create or update systemd service files (idempotent)
-            echo "Configuring systemd services..."
-            
-            # Backend service
-            sudo tee /etc/systemd/system/kiosko2-backend.service > /dev/null << EOF
-[Unit]
-Description=Kiosko2 Backend Service
-After=network.target mosquitto.service
-
-[Service]
-Type=simple
-User=${KIOSKO_USER}
-Group=${KIOSKO_USER}
-WorkingDirectory=${DEPLOY_DIR}/kiosko2/src/backend
-Environment="PATH=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin"
-Environment="KIOSKO_DATABASE_PATH=${DATA_DIR}/kiosko.db"
-Environment="KIOSKO_MQTT_BROKER=127.0.0.1"
-Environment="KIOSKO_MQTT_PORT=1883"
-ExecStart=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT}
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-            
-            # Frontend service
-            sudo tee /etc/systemd/system/kiosko2-frontend.service > /dev/null << EOF
-[Unit]
-Description=Kiosko2 Frontend Service
-After=network.target kiosko2-backend.service
-
-[Service]
-Type=simple
-User=${KIOSKO_USER}
-Group=${KIOSKO_USER}
-WorkingDirectory=${DEPLOY_DIR}/kiosko2/src/frontend
-Environment="PATH=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin"
-Environment="KIOSKO_BACKEND_URL=http://localhost:${BACKEND_PORT}"
-ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} app:app
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-            
-            # Reload systemd and enable services
-            echo "Reloading systemd..."
-            sudo systemctl daemon-reload
-            
-            # Enable services (idempotent - safe to run multiple times)
-            echo "Enabling services..."
-            sudo systemctl enable kiosko2-backend || true
-            sudo systemctl enable kiosko2-frontend || true
-            
-            # Restart or start services (idempotent)
-            echo "Starting/restarting services..."
-            if systemctl is-active --quiet kiosko2-backend; then
-              echo "Restarting backend service..."
-              sudo systemctl restart kiosko2-backend
-            else
-              echo "Starting backend service..."
-              sudo systemctl start kiosko2-backend || echo "Backend service start failed"
+            # Check if services exist (they should be set up manually once)
+            if [ ! -f /etc/systemd/system/kiosko2-backend.service ] || [ ! -f /etc/systemd/system/kiosko2-frontend.service ]; then
+              echo "WARNING: Systemd services not found!"
+              echo "Please run the setup script once on the Pi:"
+              echo "  curl -sSL https://raw.githubusercontent.com/titoluyo/verticalparking/main/kiosko2/scripts/setup_services.sh | bash"
+              echo "Or manually: cd ~/verticalparking/kiosko2/scripts && ./setup_services.sh"
+              echo ""
+              echo "Continuing with deployment, but services won't start until configured..."
             fi
             
-            if systemctl is-active --quiet kiosko2-frontend; then
-              echo "Restarting frontend service..."
-              sudo systemctl restart kiosko2-frontend
+            # Restart or start services (idempotent)
+            # Only attempt if services are configured
+            if [ -f /etc/systemd/system/kiosko2-backend.service ]; then
+              echo "Managing backend service..."
+              if systemctl is-active --quiet kiosko2-backend; then
+                echo "Restarting backend service..."
+                sudo systemctl restart kiosko2-backend || echo "Backend restart failed"
+              else
+                echo "Starting backend service..."
+                sudo systemctl start kiosko2-backend || echo "Backend start failed (check logs: sudo journalctl -u kiosko2-backend)"
+              fi
             else
-              echo "Starting frontend service..."
-              sudo systemctl start kiosko2-frontend || echo "Frontend service start failed"
+              echo "Backend service not configured - skipping"
+            fi
+            
+            if [ -f /etc/systemd/system/kiosko2-frontend.service ]; then
+              echo "Managing frontend service..."
+              if systemctl is-active --quiet kiosko2-frontend; then
+                echo "Restarting frontend service..."
+                sudo systemctl restart kiosko2-frontend || echo "Frontend restart failed"
+              else
+                echo "Starting frontend service..."
+                sudo systemctl start kiosko2-frontend || echo "Frontend start failed (check logs: sudo journalctl -u kiosko2-frontend)"
+              fi
+            else
+              echo "Frontend service not configured - skipping"
             fi
             
             # Health check

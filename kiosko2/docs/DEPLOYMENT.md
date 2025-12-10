@@ -262,7 +262,22 @@ This method uses a GitHub Actions self-hosted runner installed on your developme
      - `PI_SSH_KEY`: Contents of your private SSH key (`~/.ssh/id_ed25519` on Linux, or the key file on Windows)
      - `PI_SSH_PORT`: `22` (optional, only if using non-standard port)
 
-5. **Verify the runner is registered:**
+5. **One-time setup on Raspberry Pi (IMPORTANT):**
+   - SSH into your Raspberry Pi
+   - Run the service setup script:
+     ```bash
+     # Option 1: Download and run
+     curl -sSL https://raw.githubusercontent.com/titoluyo/verticalparking/main/kiosko2/scripts/setup_services.sh | bash
+     
+     # Option 2: Clone repo and run
+     cd ~/verticalparking/kiosko2/scripts
+     chmod +x setup_services.sh
+     ./setup_services.sh
+     ```
+   - This creates the systemd service files (one-time setup)
+   - Services will be enabled but won't start until code is deployed
+
+6. **Verify the runner is registered:**
    - Go to your GitHub repository → Settings → Actions → Runners
    - You should see your Windows/Linux runner listed
 
@@ -272,6 +287,7 @@ This method uses a GitHub Actions self-hosted runner installed on your developme
 - When tests pass, the deployment job runs on your self-hosted runner (Windows/Linux machine)
 - The runner checks out code, creates a deployment package, and SSHes to the Pi
 - The Pi receives the package, updates dependencies, and restarts services
+- **Services must be configured once manually** using `setup_services.sh` (see step 5 above)
 - No need for GitHub to access your Pi's private IP directly
 
 #### Managing the Runner

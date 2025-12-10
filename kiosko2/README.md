@@ -195,7 +195,14 @@ See [DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
    - `PI_SSH_KEY`: Your private SSH key content
    - `PI_SSH_PORT`: `22` (optional)
 
-4. **Automatic deployment:**
+4. **One-time setup on Raspberry Pi:**
+   ```bash
+   # SSH into Pi and run:
+   curl -sSL https://raw.githubusercontent.com/titoluyo/verticalparking/main/kiosko2/scripts/setup_services.sh | bash
+   ```
+   This configures systemd services (only needed once).
+
+5. **Automatic deployment:**
    - Push to `main` branch → Tests run → Auto-deploy to Pi via SSH
    - Works even if Pi is on private network (192.168.x.x)
 
