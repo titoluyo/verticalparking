@@ -94,8 +94,8 @@ jobs:
           echo "${{ secrets.PI_SSH_KEY }}" > "$SSH_DIR/pi_key"
           chmod 600 "$SSH_DIR/pi_key"
           
-          # Add Pi to known hosts (skip host key checking for private IPs)
-          ssh-keyscan -H ${{ secrets.PI_HOST }} >> "$SSH_DIR/known_hosts" 2>/dev/null || true
+          ## Add Pi to known hosts (skip host key checking for private IPs)
+          # ssh-keyscan -H ${{ secrets.PI_HOST }} >> "$SSH_DIR/known_hosts" 2>/dev/null || true
       
       - name: Deploy to Raspberry Pi via SSH
         shell: bash
