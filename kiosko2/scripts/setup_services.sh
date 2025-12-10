@@ -65,9 +65,11 @@ Environment="PATH=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin"
 Environment="KIOSKO_DATABASE_PATH=${DEPLOY_DIR}/kiosko2/data/kiosko.db"
 Environment="KIOSKO_MQTT_BROKER=127.0.0.1"
 Environment="KIOSKO_MQTT_PORT=1883"
-ExecStart=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT}
+ExecStart=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT} --log-level info
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
@@ -86,9 +88,13 @@ Group=${KIOSKO_USER}
 WorkingDirectory=${DEPLOY_DIR}/kiosko2/src/frontend
 Environment="PATH=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin"
 Environment="KIOSKO_BACKEND_URL=http://localhost:${BACKEND_PORT}"
-ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} app:app
+Environment="FLASK_SECRET_KEY=change-this-in-production"
+# Use --access-logfile and --error-logfile for better debugging
+ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} --access-logfile - --error-logfile - --log-level info app:app
 Restart=always
 RestartSec=5
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
