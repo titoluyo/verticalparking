@@ -153,10 +153,15 @@ jobs:
             
             DEPLOY_DIR="/home/${USER}/verticalparking_deploy"
             BACKUP_DIR="/home/${USER}/backups"
+            DATA_DIR="${DEPLOY_DIR}/kiosko2/data"
+            KIOSKO_USER="${USER}"
+            BACKEND_PORT=8000
+            FRONTEND_PORT=5000
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             
             # Create directories
-            mkdir -p "$DEPLOY_DIR" "$BACKUP_DIR"
+            echo "Creating directories..."
+            mkdir -p "$DEPLOY_DIR" "$BACKUP_DIR" "$DATA_DIR"
             
             # Backup current deployment
             if [ -d "$DEPLOY_DIR/kiosko2" ]; then
@@ -191,16 +196,99 @@ jobs:
             pip install -r requirements.txt
             deactivate
             
-            # Restart services
-            echo "Restarting services..."
-            sudo systemctl restart kiosko2-backend || echo "Backend service not configured"
-            sudo systemctl restart kiosko2-frontend || echo "Frontend service not configured"
+            # Create or update systemd service files (idempotent)
+            echo "Configuring systemd services..."
+            
+            # Backend service
+            sudo tee /etc/systemd/system/kiosko2-backend.service > /dev/null << EOF
+[Unit]
+Description=Kiosko2 Backend Service
+After=network.target mosquitto.service
+
+[Service]
+Type=simple
+User=${KIOSKO_USER}
+Group=${KIOSKO_USER}
+WorkingDirectory=${DEPLOY_DIR}/kiosko2/src/backend
+Environment="PATH=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin"
+Environment="KIOSKO_DATABASE_PATH=${DATA_DIR}/kiosko.db"
+Environment="KIOSKO_MQTT_BROKER=127.0.0.1"
+Environment="KIOSKO_MQTT_PORT=1883"
+ExecStart=${DEPLOY_DIR}/kiosko2/src/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${BACKEND_PORT}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            
+            # Frontend service
+            sudo tee /etc/systemd/system/kiosko2-frontend.service > /dev/null << EOF
+[Unit]
+Description=Kiosko2 Frontend Service
+After=network.target kiosko2-backend.service
+
+[Service]
+Type=simple
+User=${KIOSKO_USER}
+Group=${KIOSKO_USER}
+WorkingDirectory=${DEPLOY_DIR}/kiosko2/src/frontend
+Environment="PATH=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin"
+Environment="KIOSKO_BACKEND_URL=http://localhost:${BACKEND_PORT}"
+ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+            
+            # Reload systemd and enable services
+            echo "Reloading systemd..."
+            sudo systemctl daemon-reload
+            
+            # Enable services (idempotent - safe to run multiple times)
+            echo "Enabling services..."
+            sudo systemctl enable kiosko2-backend || true
+            sudo systemctl enable kiosko2-frontend || true
+            
+            # Restart or start services (idempotent)
+            echo "Starting/restarting services..."
+            if systemctl is-active --quiet kiosko2-backend; then
+              echo "Restarting backend service..."
+              sudo systemctl restart kiosko2-backend
+            else
+              echo "Starting backend service..."
+              sudo systemctl start kiosko2-backend || echo "Backend service start failed"
+            fi
+            
+            if systemctl is-active --quiet kiosko2-frontend; then
+              echo "Restarting frontend service..."
+              sudo systemctl restart kiosko2-frontend
+            else
+              echo "Starting frontend service..."
+              sudo systemctl start kiosko2-frontend || echo "Frontend service start failed"
+            fi
             
             # Health check
             echo "Running health check..."
             sleep 5
-            curl -f http://localhost:8000/api/v1/health || echo "Backend health check failed"
-            curl -f http://localhost:5000/ || echo "Frontend health check failed"
+            
+            # Check backend
+            if curl -f -s http://localhost:${BACKEND_PORT}/api/v1/health > /dev/null; then
+              echo "✓ Backend health check passed"
+            else
+              echo "✗ Backend health check failed (service may still be starting)"
+              sudo systemctl status kiosko2-backend --no-pager -l || true
+            fi
+            
+            # Check frontend
+            if curl -f -s http://localhost:${FRONTEND_PORT}/ > /dev/null; then
+              echo "✓ Frontend health check passed"
+            else
+              echo "✗ Frontend health check failed (service may still be starting)"
+              sudo systemctl status kiosko2-frontend --no-pager -l || true
+            fi
             
             echo "Deployment complete!"
           ENDSSH
