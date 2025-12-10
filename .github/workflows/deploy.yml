@@ -116,7 +116,7 @@ jobs:
             TEMP_DIR="/tmp"
           fi
           
-          SSH_KEY="$SSH_DIR/id_ecdsa.pub"
+          SSH_KEY="$SSH_DIR/id_ecdsa"
           SSH_PORT="${{ secrets.PI_SSH_PORT || 22 }}"
           PI_USER="${{ secrets.PI_USER }}"
           PI_HOST="${{ secrets.PI_HOST }}"
