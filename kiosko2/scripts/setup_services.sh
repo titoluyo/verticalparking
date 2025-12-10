@@ -90,7 +90,7 @@ Environment="PATH=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin"
 Environment="KIOSKO_BACKEND_URL=http://localhost:${BACKEND_PORT}"
 Environment="FLASK_SECRET_KEY=change-this-in-production"
 # Use --access-logfile and --error-logfile for better debugging
-ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} --access-logfile - --error-logfile - --log-level info app:app
+ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} --access-logfile - --error-logfile - --log-level info wsgi:application
 Restart=always
 RestartSec=5
 StandardOutput=journal
