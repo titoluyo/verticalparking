@@ -102,6 +102,7 @@ jobs:
         run: |
           # Determine paths based on OS
           if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "Windows"
             SSH_DIR="$HOME/.ssh"
             TEMP_DIR="/tmp"
             # On Windows, use Git Bash or WSL paths
@@ -115,11 +116,11 @@ jobs:
             TEMP_DIR="/tmp"
           fi
           
-          SSH_KEY="$SSH_DIR/pi_key"
+          SSH_KEY="$SSH_DIR/id_ecdsa.pub"
           SSH_PORT="${{ secrets.PI_SSH_PORT || 22 }}"
           PI_USER="${{ secrets.PI_USER }}"
           PI_HOST="${{ secrets.PI_HOST }}"
-          DEPLOY_DIR="/home/${PI_USER}/verticalparking"
+          DEPLOY_DIR="/home/${PI_USER}/verticalparking_deploy"
           BACKUP_DIR="/home/${PI_USER}/backups"
           PACKAGE_FILE="$TEMP_DIR/kiosko2-deploy.tar.gz"
           
@@ -150,7 +151,7 @@ jobs:
               ${PI_USER}@${PI_HOST} << 'ENDSSH'
             set -e
             
-            DEPLOY_DIR="/home/${USER}/verticalparking"
+            DEPLOY_DIR="/home/${USER}/verticalparking_deploy"
             BACKUP_DIR="/home/${USER}/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
             
