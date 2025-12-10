@@ -103,7 +103,9 @@ Environment="PATH=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin"
 Environment="KIOSKO_BACKEND_URL=http://localhost:${BACKEND_PORT}"
 Environment="FLASK_SECRET_KEY=change-this-in-production"
 # Use --access-logfile and --error-logfile for better debugging
-ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} --access-logfile - --error-logfile - --log-level info wsgi:application
+# --timeout 120: Increase timeout to 120 seconds (default is 30)
+# --keepalive 5: Keep connections alive for 5 seconds
+ExecStart=${DEPLOY_DIR}/kiosko2/src/frontend/.venv/bin/gunicorn -w 2 -b 0.0.0.0:${FRONTEND_PORT} --timeout 120 --keepalive 5 --access-logfile - --error-logfile - --log-level info wsgi:application
 Restart=always
 RestartSec=5
 StandardOutput=journal
